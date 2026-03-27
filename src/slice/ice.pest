@@ -15,8 +15,13 @@ lang_define = _{ "["  ~ (!"]" ~ ANY)* ~ "]" ~ NEWLINE?}
 
 identifier = @{ ASCII_ALPHA ~ (ASCII_DIGIT | ASCII_ALPHA | "_")* }
 value = { (!NEWLINE ~ ANY)* }
-typename = { identifier ~ ("<" ~ identifier ~ ("," ~ identifier)* ~ ">")? }
-numeric_value = { (!NEWLINE ~ !ASCII_ALPHA ~ ASCII_DIGIT)+ }
+const_value = { (!NEWLINE ~ !";" ~ ANY)* }
+pointer = { "*" }
+scoped = { identifier ~ ("::" ~ identifier)* }
+type_param = { scoped ~ pointer? }
+type_generics = { "<" ~ type_param ~ ("," ~ NEWLINE? ~ type_param)* ~ ">" }
+typename = { scoped ~ type_generics? ~ pointer? }
+numeric_value = { ASCII_DIGIT+ }
 
 keyword_out = { "out" }
 keyword_module = { "module" }
@@ -30,25 +35,27 @@ keyword_extends = { "extends" }
 keyword_optional = { "optional" ~ "(" ~ optional_tag ~ ")" }
 keyword_include = { "#include" }
 keyword_idempotent = { "idempotent" }
+keyword_const = { "const" }
 
 optional_tag = { ASCII_DIGIT+ }
 file_include = { keyword_include ~ "<" ~ file_path ~ ".ice" ~ ">" ~ NEWLINE* }
-file_path = _{ identifier ~ ("/" ~ identifier)* }
+file_path = { identifier ~ ("/" ~ identifier)* }
 block_open = { NEWLINE* ~ "{" ~ NEWLINE* }
 block_close = { "}" ~ ";"? ~ NEWLINE* }
 
-any_block = { module_block | interface_block | enum_block | struct_block| class_block | exception_block }
+class_forward = { keyword_class ~ identifier ~ ";" ~ NEWLINE* }
+any_block = { module_block | interface_block | enum_block | struct_block| class_block | exception_block | class_forward }
 
-module_block = { keyword_module ~ identifier ~ block_open ~ (any_block | typedef | lang_define)* ~ block_close }
-interface_block = { keyword_interface ~ identifier ~ block_open ~ (function)* ~ block_close }
+const_def = { keyword_const ~ typename ~ identifier ~ "=" ~ const_value ~ ";" ~ NEWLINE* }
+module_block = { keyword_module ~ identifier ~ block_open ~ (any_block | const_def | typedef | lang_define)* ~ block_close }
+interface_block = { lang_define* ~ keyword_interface ~ identifier ~ extends? ~ block_open ~ (function)* ~ block_close }
 enum_block = { keyword_enum ~ identifier ~ block_open ~ enum_lines ~ block_close }
 struct_block = { keyword_struct ~ identifier ~ block_open ~ struct_line+ ~ block_close }
 extends = { keyword_extends ~ identifier }
 class_block = { keyword_class ~ identifier ~ extends? ~ block_open ~ class_line+ ~ block_close }
 exception_block = { keyword_exception ~ identifier ~ extends? ~ block_open ~ struct_line* ~ block_close }
 
-fn_return = { keyword_optional? ~ identifier }
-fn_return_proxy = { "*" }
+fn_return = { keyword_optional? ~ typename }
 fn_name = { identifier }
 fn_arg_open = { "(" }
 fn_arg = { !keyword_out ~ keyword_optional? ~ typename ~ identifier }
@@ -57,11 +64,10 @@ fn_arg_list = {
     (fn_arg ~ ("," ~ NEWLINE? ~ fn_arg)*)? ~ NEWLINE? ~ (fn_arg_out? ~ ("," ~ fn_arg_out)*)?
 }
 fn_arg_close = { ")" }
-fn_throws = { keyword_throws ~ identifier }
+fn_throws = { keyword_throws ~ identifier ~ ("," ~ NEWLINE? ~ identifier)* }
 function = {
     keyword_idempotent? ~
     fn_return ~
-    fn_return_proxy? ~
     fn_name ~
     fn_arg_open ~ NEWLINE? ~
     fn_arg_list ~

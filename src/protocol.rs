@@ -79,14 +79,27 @@ pub struct Version
     pub minor: u8
 }
 
+/// Поля в порядке кодирования Ice: identity (name, category), facet, …
 #[derive(Debug, IceDerive)]
 pub struct ProxyData {
-    pub id: String,
+    pub name: String,
+    pub category: String,
     pub facet: Vec<String>,
     pub mode: u8,
     pub secure: bool,
     pub protocol: Version,
-    pub encoding: Version
+    pub encoding: Version,
+}
+
+impl ProxyData {
+    /// Строка идентичности для proxy-string (`category/name` либо только `name`).
+    pub fn identity_string(&self) -> String {
+        if self.category.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{}/{}", self.category, self.name)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -145,4 +158,20 @@ impl Encapsulation {
             data: bytes
         }
     }
+}
+
+/// Убирает до двух внешних Encapsulation с параметров входящего запроса (совместимость с Ice C++).
+pub fn peel_slice_param_payload(data: &[u8]) -> Vec<u8> {
+    let mut cur = data.to_vec();
+    for _ in 0..2 {
+        let mut r = 0i32;
+        if cur.len() < 6 {
+            break;
+        }
+        match Encapsulation::from_bytes(&cur, &mut r) {
+            Ok(enc) if (r as usize) == cur.len() => cur = enc.data,
+            _ => break,
+        }
+    }
+    cur
 }

@@ -4,9 +4,11 @@ use std::sync::Arc;
 use task::JoinHandle;
 use tokio::{io::{AsyncReadExt, AsyncWriteExt, ReadHalf, WriteHalf}, sync::Mutex, task};
 
-use crate::{errors::{ProtocolError, UserError}, protocol::{Header, MessageType}, proxy_factory::ProxyFactory, proxy_parser::{ProxyStringType, parse_proxy_string}, transport::Transport};
-use crate::protocol::{ReplyData, RequestData, Identity, Encapsulation};
-use crate::encoding::{ToBytes, FromBytes};
+use crate::{errors::{ProtocolError, UserError}, protocol::{Header, MessageType}, proxy_factory::ProxyFactory, proxy_parser::{DirectProxyData, ProxyStringType, parse_proxy_string}, transport::Transport};
+use crate::protocol::{EndPointType, ReplyData, RequestData, Identity, Encapsulation, EndpointData, ProxyData, Version};
+use crate::encoding::{ToBytes, FromBytes, IceSize};
+use crate::communicator::INITDATA;
+use futures::executor::block_on;
 
 #[derive(Parser)]
 #[grammar = "proxystring.pest"]
@@ -27,43 +29,65 @@ pub struct Proxy {
 
 impl Drop for Proxy {
     fn drop(&mut self) {
-        tokio::task::block_in_place(|| {
-            futures::executor::block_on(async {
-                self.close_connection().await
-            })
-        }).expect("Could not close connection");
-        match &self.handle {
-            Some(handle) => handle.abort(),
-            None => {}
-        };
+        if std::thread::panicking() {
+            if let Some(h) = self.handle.take() {
+                h.abort();
+            }
+            return;
+        }
+        let _ = tokio::task::block_in_place(|| {
+            futures::executor::block_on(async { self.close_connection().await })
+        });
+        if let Some(h) = self.handle.take() {
+            h.abort();
+        }
     }
 }
 
 impl Proxy {
+    /// Один полный TCP-кадр Ice (как в `adapter::read_ice_frame`): длина из `Header.message_size`.
+    async fn read_ice_message(
+        rx: &mut ReadHalf<Box<dyn Transport + Send + Sync + Unpin>>,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error + Sync + Send>> {
+        let mut hdr = [0u8; 14];
+        rx.read_exact(&mut hdr).await?;
+        let mut hdr_done = 0i32;
+        let header = Header::from_bytes(&hdr, &mut hdr_done)?;
+        let total = header.message_size as usize;
+        if total < 14 {
+            return Err(Box::new(ProtocolError::new("Ice: message_size < 14")));
+        }
+        let mut buf = vec![0u8; total];
+        buf[..14].copy_from_slice(&hdr);
+        if total > 14 {
+            rx.read_exact(&mut buf[14..]).await?;
+        }
+        Ok(buf)
+    }
+
     async fn read_thread(mut rx: ReadHalf<Box<dyn Transport + Send + Sync + Unpin>>, message_queue: Arc<Mutex<Vec<MessageType>>>) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
-        let mut buffer = vec![0; 2048];
         loop {
-            let bytes = rx.read(&mut buffer).await?;
+            let buffer = Self::read_ice_message(&mut rx).await?;
             let mut read: i32 = 0;
-            let header = Header::from_bytes(&buffer[read as usize..bytes], &mut read)?;
+            let header = Header::from_bytes(&buffer[read as usize..buffer.len()], &mut read)?;
 
             let message = match header.message_type {
                 2 => {
-                    let reply = ReplyData::from_bytes(&buffer[read as usize..bytes as usize], &mut read)?;                    
+                    let reply =
+                        ReplyData::from_bytes(&buffer[read as usize..buffer.len()], &mut read)?;
                     MessageType::Reply(header, reply)
                 }
-                3 => {
-                    MessageType::ValidateConnection(header)
-                },
-                _ => return Err(Box::new(ProtocolError::new(&format!("TCP: Unsuppored reply message type: {}", header.message_type))))
+                3 => MessageType::ValidateConnection(header),
+                _ => {
+                    return Err(Box::new(ProtocolError::new(&format!(
+                        "TCP: Unsuppored reply message type: {}",
+                        header.message_type
+                    ))))
+                }
             };
 
-            {
-                let mut lock = message_queue.lock().await;
-                lock.push(message);
-            }
-
-            std::thread::sleep(std::time::Duration::from_millis(1));
+            let mut lock = message_queue.lock().await;
+            lock.push(message);
         }
     }
 
@@ -241,7 +265,7 @@ impl Proxy {
                             exception: T::from_bytes(&reply.body.data, &mut read)?
                         }))
                     }
-                    _ => Ok(reply)
+                    _ => Ok(reply),
                 }
             },
             _ => Err(Box::new(ProtocolError::new(&format!("Unsupported message type: {:?}", message))))
@@ -252,5 +276,70 @@ impl Proxy {
     {
         self.send_request(request).await?;
         self.read_response::<T>(request.request_id).await
+    }
+}
+
+impl ToBytes for Proxy {
+    fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Sync + Send>> {
+        let id = Identity::new(&self.ident);
+        let proxy_data = ProxyData {
+            name: id.name,
+            category: id.category,
+            facet: vec![],
+            mode: 2,
+            secure: self.stream_type == "ssl",
+            protocol: Version { major: 1, minor: 0 },
+            encoding: Version { major: 1, minor: 1 },
+        };
+        let mut out = proxy_data.to_bytes()?;
+        let ep_type: i16 = if self.stream_type == "ssl" { 2 } else { 1 };
+        let mut inner = Vec::new();
+        inner.extend(ep_type.to_bytes()?);
+        let ep = EndpointData {
+            host: self.host.clone(),
+            port: self.port,
+            timeout: -1,
+            compress: false,
+        };
+        let enc = Encapsulation::from(ep.to_bytes()?);
+        inner.extend(enc.to_bytes()?);
+        out.extend(IceSize { size: inner.len() as i32 }.to_bytes()?);
+        out.extend(inner);
+        Ok(out)
+    }
+}
+
+impl FromBytes for Proxy {
+    fn from_bytes(bytes: &[u8], read_bytes: &mut i32) -> Result<Self, Box<dyn std::error::Error + Sync + Send>>
+    where
+        Self: Sized,
+    {
+        let mut read = 0i32;
+        let proxy_data = ProxyData::from_bytes(bytes, &mut read)?;
+        let props = {
+            let g = INITDATA.lock().unwrap();
+            g.properties().clone()
+        };
+        let _sz = IceSize::from_bytes(&bytes[read as usize..], &mut read)?;
+        let ep_disc = i16::from_bytes(&bytes[read as usize..], &mut read)?;
+        let enc = Encapsulation::from_bytes(&bytes[read as usize..], &mut read)?;
+        let mut er = 0i32;
+        let endpoint = EndpointData::from_bytes(&enc.data, &mut er)?;
+        let direct = DirectProxyData {
+            ident: proxy_data.identity_string(),
+            endpoint: match ep_disc {
+                1 => EndPointType::TCP(endpoint),
+                2 => EndPointType::SSL(endpoint),
+                x => {
+                    return Err(Box::new(ProtocolError::new(&format!(
+                        "Unsupported proxy endpoint discriminator {}",
+                        x
+                    ))))
+                }
+            },
+        };
+        let proxy = block_on(async { ProxyFactory::create_proxy(direct, &props, None).await })?;
+        *read_bytes += read;
+        Ok(proxy)
     }
 }

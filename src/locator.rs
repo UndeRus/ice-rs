@@ -23,7 +23,7 @@ impl Locator {
             Some(adapter) => {
                 let result = self.find_adapter_by_id(&adapter).await?;
                 Ok(DirectProxyData {
-                    ident: result.proxy_data.id,
+                    ident: result.proxy_data.identity_string(),
                     endpoint: result.endpoint
                 })
             }
@@ -33,12 +33,12 @@ impl Locator {
                     EndPointType::WellKnownObject(object) => {
                         let adapter_result = self.find_adapter_by_id(&object).await?;
                         Ok(DirectProxyData {
-                            ident: obj_result.proxy_data.id,
+                            ident: obj_result.proxy_data.identity_string(),
                             endpoint: adapter_result.endpoint
                         })
                     }
                     _ => Ok(DirectProxyData {
-                        ident: obj_result.proxy_data.id,
+                        ident: obj_result.proxy_data.identity_string(),
                         endpoint: obj_result.endpoint
                     })
                 }

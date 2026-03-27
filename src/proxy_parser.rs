@@ -107,7 +107,7 @@ pub fn parse_endpoint(rules: Pairs<Rule>) -> Result<EndPointType, Box<dyn std::e
                 for item in child.into_inner() {
                     match item.as_rule() {
                         Rule::hostname | Rule::ip => {
-                            host = item.as_str();
+                            host = item.as_str().trim();
                         }
                         Rule::port => {
                             port = item.as_str().parse()?;
@@ -131,5 +131,28 @@ pub fn parse_endpoint(rules: Pairs<Rule>) -> Result<EndPointType, Box<dyn std::e
         "tcp" | "default" => return Ok(EndPointType::TCP(endpoint_data)),
         "ssl" => return Ok(EndPointType::SSL(endpoint_data)),
         _ => return Err(Box::new(ParsingError::new("Unsupported protocol.")))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::EndPointType;
+
+    #[test]
+    fn direct_proxy_parses_tcp_with_spaces() {
+        match parse_proxy_string("Meta:tcp -h 127.0.0.1 -p 6502").unwrap() {
+            ProxyStringType::DirectProxy(d) => {
+                assert_eq!(d.ident, "Meta");
+                match d.endpoint {
+                    EndPointType::TCP(ep) => {
+                        assert_eq!(ep.host, "127.0.0.1");
+                        assert_eq!(ep.port, 6502);
+                    }
+                    _ => panic!("expected TCP"),
+                }
+            }
+            _ => panic!("expected direct"),
+        }
     }
 }

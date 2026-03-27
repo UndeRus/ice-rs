@@ -45,7 +45,7 @@ impl Enum {
         }).collect::<Vec<_>>();
 
         Ok(quote! {
-            #[derive(Debug, Copy, Clone, TryFromPrimitive, PartialEq)]
+            #[derive(Debug, Copy, Clone, TryFromPrimitive, PartialEq, Eq, Hash)]
             #[repr(i32)]
             pub enum #id_token {
                 #(#variant_tokens),*

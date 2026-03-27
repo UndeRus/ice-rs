@@ -146,6 +146,7 @@ impl Function {
             }; 
 
             quote!{
+                let __req_param_buf = ice_rs::protocol::peel_slice_param_payload(&request.params.data);
                 let mut read_bytes = 0;
                 #(#decoded_tokens)*
                 #(#decoded_opt_tokens)*
@@ -156,6 +157,8 @@ impl Function {
             }
         } else {
             quote!{
+                let __req_param_buf = ice_rs::protocol::peel_slice_param_payload(&request.params.data);
+                let _ = __req_param_buf.len();
                 let result = self.server_impl.#id_token (None).await;
                 #wrapped_result
                 let result = wrapped_result.to_bytes()?;

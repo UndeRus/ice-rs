@@ -62,7 +62,7 @@ impl FunctionArgument {
                     quote! { }
                 };
                 Some(quote! {
-                    let #mut_token #id_token = #type_token::from_bytes(&request.params.data[read_bytes as usize..request.params.data.len()], &mut read_bytes)?;
+                    let #mut_token #id_token = #type_token::from_bytes(&__req_param_buf[read_bytes as usize..__req_param_buf.len()], &mut read_bytes)?;
                 })        
             }
         }
@@ -75,10 +75,10 @@ impl FunctionArgument {
             IceType::Optional(_, tag) => {
                 Some(quote! {
                     let mut flag_bytes = 0;
-                    match OptionalFlag::from_bytes(&request.params.data[read_bytes as usize..request.params.data.len()], &mut flag_bytes) {
+                    match OptionalFlag::from_bytes(&__req_param_buf[read_bytes as usize..__req_param_buf.len()], &mut flag_bytes) {
                         Ok(flag) => {
                             if flag.tag == #tag {
-                                #id_token = #type_token::from_bytes(&request.params.data[read_bytes as usize..request.params.data.len()], &mut read_bytes)?;
+                                #id_token = #type_token::from_bytes(&__req_param_buf[read_bytes as usize..__req_param_buf.len()], &mut read_bytes)?;
                             }
                         }
                         _ => {}

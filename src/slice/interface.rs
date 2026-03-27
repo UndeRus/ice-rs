@@ -94,9 +94,31 @@ impl Interface {
             impl IceObjectServer for #id_server_token {
                 async fn handle_request(&mut self, request: &RequestData) -> Result<ReplyData, Box<dyn std::error::Error + Sync + Send>> {
                     match request.operation.as_ref() {
+                        "ice_ping" => Ok(ReplyData {
+                            request_id: request.request_id,
+                            status: 0,
+                            body: Encapsulation::empty(),
+                        }),
+                        "ice_id" => Ok(ReplyData {
+                            request_id: request.request_id,
+                            status: 0,
+                            body: Encapsulation::from(String::from(#type_id_token).to_bytes()?),
+                        }),
+                        "ice_ids" => Ok(ReplyData {
+                            request_id: request.request_id,
+                            status: 0,
+                            body: Encapsulation::from(
+                                vec![
+                                    String::from(#type_id_token),
+                                    String::from("::Ice::Object"),
+                                ]
+                                .to_bytes()?,
+                            ),
+                        }),
                         "ice_isA" => {
+                            let buf = ice_rs::protocol::peel_slice_param_payload(&request.params.data);
                             let mut read = 0;
-                            let param = String::from_bytes(&request.params.data, &mut read)?;
+                            let param = String::from_bytes(&buf, &mut read)?;
                             Ok(ReplyData {
                                 request_id: request.request_id,
                                 status: 0,
@@ -163,6 +185,28 @@ impl Interface {
                         return Err(Box::new(ProtocolError::new("ice_is_a() failed")));
                     }
                     Ok(my_proxy)
+                }
+            }
+
+            impl ice_rs::encoding::ToBytes for #id_proxy_token {
+                fn to_bytes(
+                    &self,
+                ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+                    self.proxy.to_bytes()
+                }
+            }
+
+            impl ice_rs::encoding::FromBytes for #id_proxy_token {
+                fn from_bytes(
+                    bytes: &[u8],
+                    read_bytes: &mut i32,
+                ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>>
+                where
+                    Self: Sized,
+                {
+                    Ok(#id_proxy_token {
+                        proxy: ice_rs::proxy::Proxy::from_bytes(bytes, read_bytes)?,
+                    })
                 }
             }
         })

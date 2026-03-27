@@ -4,30 +4,25 @@ use super::types::IceType;
 
 #[derive(Clone, Debug)]
 pub struct FunctionThrows {
-    pub r#type: Option<IceType>,
+    /// All declared Slice exceptions (first is used for reply error decoding).
+    pub types: Vec<IceType>,
 }
 
 impl FunctionThrows {
-    pub fn new(r#type: IceType) -> FunctionThrows {
-        FunctionThrows {
-            r#type: Some(r#type)
-        }
+    pub fn new(types: Vec<IceType>) -> FunctionThrows {
+        FunctionThrows { types }
     }
 
     pub fn empty() -> FunctionThrows {
-        FunctionThrows {
-            r#type: None
-        }
+        FunctionThrows { types: Vec::new() }
     }
 
     pub fn token(&self) -> TokenStream {
-        match &self.r#type {
-            Some(throw) => {
-                throw.token()                
-            },
+        match self.types.first() {
+            Some(throw) => throw.token(),
             _ => quote! {
                 ProtocolError
-            }
-        }   
+            },
+        }
     }
 }

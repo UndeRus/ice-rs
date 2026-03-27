@@ -275,6 +275,19 @@ impl<T: FromBytes> FromBytes for Vec<T>
     }
 }
 
+impl<T: ToBytes> ToBytes for Box<T> {
+    fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Sync + Send>> {
+        self.as_ref().to_bytes()
+    }
+}
+
+impl<T: FromBytes> FromBytes for Box<T> {
+    fn from_bytes(bytes: &[u8], read_bytes: &mut i32) -> Result<Self, Box<dyn std::error::Error + Sync + Send>>
+    where Self: Sized {
+        Ok(Box::new(T::from_bytes(bytes, read_bytes)?))
+    }
+}
+
 impl ToBytes for u8 {
     fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Sync + Send>> {
         Ok(vec![*self])
@@ -452,13 +465,28 @@ impl FromBytes for Encapsulation {
         let size = i32::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?;
         let major = u8::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?;
         let minor = u8::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?;
-        *read_bytes = *read_bytes + read + (bytes.len() as i32 - read);
+        let total = size as usize;
+        if total < 6 {
+            return Err(Box::new(ProtocolError::new("Encapsulation size < header")));
+        }
+        let payload = total - 6;
+        let end = read as usize + payload;
+        if bytes.len() < end {
+            return Err(Box::new(ProtocolError::new(&format!(
+                "Encapsulation truncated: need {} bytes, have {}",
+                end,
+                bytes.len()
+            ))));
+        }
+        let data = bytes[read as usize..end].to_vec();
+        read += payload as i32;
+        *read_bytes = *read_bytes + read;
 
         Ok(Encapsulation {
             size: size,
             major: major,
             minor: minor,
-            data: bytes[read as usize..bytes.len()].to_vec()
+            data: data,
         })
     }
 }

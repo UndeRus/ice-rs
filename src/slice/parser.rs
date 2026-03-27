@@ -82,27 +82,54 @@ impl ParsedModule for Module {
                             Rule::enum_block => {
                                 let enumeration = Enum::parse(block.into_inner())?;
                                 self.type_map.borrow_mut().insert(enumeration.id.to_string(), module.snake_name());
+                                self.type_map.borrow_mut().insert(enumeration.ice_id.clone(), module.snake_name());
+                                let fq = format!("{}::{}", module.name, enumeration.ice_id);
+                                self.type_map.borrow_mut().insert(fq, module.snake_name());
                                 module.add_enum(enumeration);
                             },
                             Rule::struct_block => {
                                 let structure = Struct::parse(block.into_inner())?;
                                 self.type_map.borrow_mut().insert(structure.id.to_string(), module.snake_name());
+                                self.type_map.borrow_mut().insert(structure.ice_id.clone(), module.snake_name());
+                                let fq = format!("{}::{}", module.name, structure.ice_id);
+                                self.type_map.borrow_mut().insert(fq, module.snake_name());
                                 module.add_struct(structure);
                             },
                             Rule::class_block => {
                                 let class = Class::parse(block.into_inner())?;
                                 self.type_map.borrow_mut().insert(class.id.to_string(), module.snake_name());
+                                self.type_map.borrow_mut().insert(class.ice_id.clone(), module.snake_name());
+                                let fq = format!("{}::{}", module.name, class.ice_id);
+                                self.type_map.borrow_mut().insert(fq, module.snake_name());
                                 module.add_class(class);
                             },
                             Rule::interface_block => {
                                 let interface = Interface::parse(block.into_inner())?;
+                                self.type_map
+                                    .borrow_mut()
+                                    .insert(interface.id.to_string(), module.snake_name());
+                                self.type_map
+                                    .borrow_mut()
+                                    .insert(interface.ice_id.clone(), module.snake_name());
+                                let fq = format!("{}::{}", module.name, interface.ice_id);
+                                self.type_map.borrow_mut().insert(fq, module.snake_name());
                                 module.add_interface(interface);
                             },
                             Rule::exception_block => {
                                 let exception = Exception::parse(block.into_inner())?;
                                 self.type_map.borrow_mut().insert(exception.id.to_string(), module.snake_name());
+                                self.type_map.borrow_mut().insert(exception.ice_id.clone(), module.snake_name());
+                                let fq = format!("{}::{}", module.name, exception.ice_id);
+                                self.type_map.borrow_mut().insert(fq, module.snake_name());
                                 module.add_exception(exception);
-                            }
+                            },
+                            Rule::class_forward => {
+                                for item in block.into_inner() {
+                                    if item.as_rule() == Rule::identifier {
+                                        self.type_map.borrow_mut().insert(String::from(item.as_str()), module.snake_name());
+                                    }
+                                }
+                            },
                             _ => return Err(Box::new(ParsingError::new(
                                 &format!("Unexpected rule {:?}", block.as_rule())
                             )))
@@ -118,6 +145,8 @@ impl ParsedModule for Module {
                             Rule::identifier => { id = item.as_str(); },
                             Rule::typedef_end => {
                                 self.type_map.borrow_mut().insert(String::from(id), module.snake_name());
+                                let fq = format!("{}::{}", module.name, id);
+                                self.type_map.borrow_mut().insert(fq, module.snake_name());
                                 module.add_typedef(id, vartype.clone());
                             },
                             _ => return Err(Box::new(ParsingError::new(
@@ -126,6 +155,8 @@ impl ParsedModule for Module {
                         }
                     }
                 }
+                Rule::lang_define => {}
+                Rule::const_def => {}
                 Rule::block_close => {},
                 _ => return Err(Box::new(ParsingError::new(
                     &format!("Unexpected rule {:?}", child.as_rule())
@@ -144,7 +175,7 @@ impl ParsedObject for Enum {
                 Rule::keyword_enum => {},
                 Rule::identifier => { 
                     enumeration.ice_id = String::from(child.as_str());
-                    let id_str = format_ident!("{}", classcase::to_class_case(&enumeration.ice_id));
+                    let id_str = format_ident!("{}", pascalcase::to_pascal_case(&enumeration.ice_id));
                     enumeration.id = quote! { #id_str };
                 },
                 Rule::block_open => {},
@@ -308,10 +339,12 @@ impl ParsedObject for Interface {
         let mut interface = Interface::empty();
         for child in rule {
             match child.as_rule() {
+                Rule::lang_define => {}
                 Rule::keyword_interface => {},
+                Rule::extends => {}
                 Rule::identifier => { 
                     interface.ice_id = String::from(child.as_str());
-                    let id_str = format_ident!("{}", classcase::to_class_case(&interface.ice_id));
+                    let id_str = format_ident!("{}", pascalcase::to_pascal_case(&interface.ice_id));
                     interface.id = quote! { #id_str };
                 },
                 Rule::block_open => {},
@@ -335,9 +368,6 @@ impl ParsedObject for Function {
             match child.as_rule() {
                 Rule::keyword_idempotent => {
                     function.set_idempotent();
-                }
-                Rule::fn_return_proxy => {
-                    function.return_type.set_proxy();
                 }
                 Rule::fn_return => {
                     function.return_type = FunctionReturn::parse(child.into_inner())?;
@@ -377,18 +407,20 @@ impl ParsedObject for Function {
 
 impl ParsedObject for FunctionThrows {
     fn parse(rule: Pairs<Rule>) -> Result<Self, Box<dyn std::error::Error>> where Self: Sized {
+        let mut types = Vec::new();
         for child in rule {
             match child.as_rule() {
                 Rule::keyword_throws => {}
                 Rule::identifier => {
-                    return Ok(FunctionThrows::new(IceType::from(child.as_str())?));
+                    types.push(IceType::from(child.as_str())?);
                 }
-                _ => { }
+                _ => {}
             }
         }
-        return Err(Box::new(ParsingError::new(
-            &format!("Did not find throw identifier")
-        )))
+        if types.is_empty() {
+            return Err(Box::new(ParsingError::new("Did not find throw identifier")));
+        }
+        Ok(FunctionThrows::new(types))
     }
 }
 
@@ -410,12 +442,13 @@ impl ParsedObject for FunctionReturn {
                     }
                     optional_tag = tag.as_str().parse()?;
                 }
-                Rule::identifier => {
-                    if optional {
-                        return_type = IceType::Optional(Box::new(IceType::from(child.as_str())?), optional_tag);
+                Rule::typename => {
+                    let t = IceType::from(child.as_str().trim())?;
+                    return_type = if optional {
+                        IceType::Optional(Box::new(t), optional_tag)
                     } else {
-                        return_type = IceType::from(child.as_str())?;
-                    }
+                        t
+                    };
                 }
                 _ => return Err(Box::new(ParsingError::new(
                     &format!("Unexpected rule {:?}", child.as_rule())
@@ -520,26 +553,39 @@ impl Module {
                     for child in pair.into_inner() {
                         match child.as_rule() {
                             Rule::file_include => {
+                                let mut path_parts: Vec<String> = Vec::new();
                                 for item in child.into_inner() {
                                     match item.as_rule() {
-                                        Rule::keyword_include => {},
-                                        Rule::identifier => {
-                                            let include = include_dir.join(format!("{}.ice", item.as_str()));
-                                            let include_str = String::from(include_dir.join(format!("{}.ice", item.as_str())).to_str().unwrap());
-                                            println!("  parsing include {} ... ", include_str);
-                                            if parsed_files.contains(&include_str) {
-                                                println!("  skip file!");
-                                            } else {
-                                                parsed_files.insert(include_str);
-                                                let mut include_file = File::open(include)?;
-                                                self.parse_file(&mut include_file, include_dir, parsed_files)?;
-                                                println!("  finished include");
+                                        Rule::keyword_include => {}
+                                        Rule::file_path => {
+                                            for p in item.into_inner() {
+                                                if p.as_rule() == Rule::identifier {
+                                                    path_parts.push(String::from(p.as_str()));
+                                                }
                                             }
                                         }
                                         _ => return Err(Box::new(ParsingError::new(
                                             &format!("Unexpected rule {:?}", item.as_rule())
-                                        )))
+                                        ))),
                                     }
+                                }
+                                let rel = path_parts.join("/");
+                                let include = include_dir.join(format!("{}.ice", rel));
+                                let include_str = include
+                                    .to_str()
+                                    .ok_or_else(|| {
+                                        Box::new(ParsingError::new("Invalid include path"))
+                                            as Box<dyn std::error::Error>
+                                    })?
+                                    .to_string();
+                                println!("  parsing include {} ... ", include_str);
+                                if parsed_files.contains(&include_str) {
+                                    println!("  skip file!");
+                                } else {
+                                    parsed_files.insert(include_str.clone());
+                                    let mut include_file = File::open(&include)?;
+                                    self.parse_file(&mut include_file, include_dir, parsed_files)?;
+                                    println!("  finished include");
                                 }
                             }
                             Rule::module_block => {

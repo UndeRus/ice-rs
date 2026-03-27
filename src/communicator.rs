@@ -18,28 +18,32 @@ pub struct Communicator {
 
 impl Communicator {
     pub async fn new() -> Result<Communicator, Box<dyn std::error::Error + Sync + Send>> {
-        let init_data = INITDATA.lock().unwrap();
-        let proxy_factory = ProxyFactory::new(init_data.properties()).await?;
+        let init_snapshot = {
+            let init_data = INITDATA.lock().unwrap();
+            init_data.clone()
+        };
+        let proxy_factory = ProxyFactory::new(init_snapshot.properties()).await?;
         Ok(Communicator {
             proxy_factory
         })
     }
 
     pub async fn string_to_proxy(&mut self, proxy_string: &str) -> Result<Proxy, Box<dyn std::error::Error + Sync + Send>> {
-        let init_data = INITDATA.lock().unwrap();
-        self.proxy_factory.create(proxy_string, init_data.properties()).await
+        let props = {
+            let init_data = INITDATA.lock().unwrap();
+            init_data.properties().clone()
+        };
+        self.proxy_factory.create(proxy_string, &props).await
     }
 
     pub async fn property_to_proxy(&mut self, property: &str) -> Result<Proxy, Box<dyn std::error::Error + Sync + Send>> {
-        let init_data = INITDATA.lock().unwrap();
-        let properties = init_data.properties();
-        match properties.get(property) {
-            Some(value) => {
-                self.proxy_factory.create(value, &properties).await
-            }
-            None => {
-                Err(Box::new(PropertyError::new(property)))
-            }
+        let props = {
+            let init_data = INITDATA.lock().unwrap();
+            init_data.properties().clone()
+        };
+        match props.get(property) {
+            Some(value) => self.proxy_factory.create(value, &props).await,
+            None => Err(Box::new(PropertyError::new(property))),
         }
     }
 
@@ -49,11 +53,16 @@ impl Communicator {
 }
 
 pub async fn initialize(config_file: &str) -> Result<Communicator, Box<dyn std::error::Error + Sync + Send>> {
-    let mut init_data = INITDATA.lock().unwrap();
-    let properties = init_data.properties_as_mut();
-    properties.load(config_file).unwrap();
-    let proxy_factory = ProxyFactory::new(&properties).await?;
+    {
+        let mut init_data = INITDATA.lock().unwrap();
+        init_data.properties_as_mut().load(config_file).unwrap();
+    }
+    let init_snapshot = {
+        let init_data = INITDATA.lock().unwrap();
+        init_data.clone()
+    };
+    let proxy_factory = ProxyFactory::new(init_snapshot.properties()).await?;
     Ok(Communicator {
-        proxy_factory
+        proxy_factory,
     })
 }

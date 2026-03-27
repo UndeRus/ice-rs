@@ -71,14 +71,90 @@ impl Module {
         }
     }
 
-    pub fn has_dict(&self) -> bool {
-        for (_, var) in &self.typedefs {
-            match var {
-                IceType::DictType(_, _) => return true,
-                _ => {}
+    fn ice_type_has_dict(t: &IceType) -> bool {
+        match t {
+            IceType::DictType(_, _) => true,
+            IceType::SequenceType(inner) | IceType::Optional(inner, _) | IceType::Proxy(inner) => {
+                Self::ice_type_has_dict(inner)
+            }
+            _ => false,
+        }
+    }
+
+    fn collect_custom_type_names(t: &IceType, out: &mut Vec<String>) {
+        match t {
+            IceType::CustomType(n) => out.push(n.clone()),
+            IceType::Proxy(inner) => Self::collect_custom_type_names(inner, out),
+            IceType::SequenceType(inner) | IceType::Optional(inner, _) => {
+                Self::collect_custom_type_names(inner, out)
+            }
+            IceType::DictType(k, v) => {
+                Self::collect_custom_type_names(k, out);
+                Self::collect_custom_type_names(v, out);
+            }
+            _ => {}
+        }
+    }
+
+    fn resolve_type_module(&self, name: &str) -> Option<String> {
+        let m = self.type_map.borrow();
+        m.get(name)
+            .cloned()
+            .or_else(|| name.rsplit("::").next().and_then(|k| m.get(k).cloned()))
+    }
+
+    fn should_emit_typedef_after_classes(&self, id: &str, vartype: &IceType) -> bool {
+        if let IceType::SequenceType(inner) = vartype {
+            if let IceType::CustomType(elem) = &**inner {
+                return self.classes.iter().any(|c| {
+                    c.ice_id == *elem
+                        && c
+                            .members
+                            .iter()
+                            .any(|m| matches!(&m.r#type, IceType::CustomType(t) if t == id))
+                });
             }
         }
         false
+    }
+
+    pub fn has_dict(&self) -> bool {
+        if self
+            .typedefs
+            .iter()
+            .any(|(_, t)| Self::ice_type_has_dict(t))
+        {
+            return true;
+        }
+        if self
+            .structs
+            .iter()
+            .any(|s| s.members.iter().any(|m| Self::ice_type_has_dict(&m.r#type)))
+        {
+            return true;
+        }
+        if self
+            .classes
+            .iter()
+            .any(|c| c.members.iter().any(|m| Self::ice_type_has_dict(&m.r#type)))
+        {
+            return true;
+        }
+        if self
+            .exceptions
+            .iter()
+            .any(|e| e.members.iter().any(|m| Self::ice_type_has_dict(&m.r#type)))
+        {
+            return true;
+        }
+        self.interfaces.iter().any(|i| {
+            i.functions.iter().any(|f| {
+                Self::ice_type_has_dict(&f.return_type.r#type)
+                    || f.arguments
+                        .iter()
+                        .any(|a| Self::ice_type_has_dict(&a.r#type))
+            })
+        })
     }
 
     pub fn snake_name(&self) -> String {
@@ -128,20 +204,21 @@ impl Module {
         }
 
         if self.structs.len() > 0 {
+            use_statements.use_crate(quote! { use ice_rs::IceDerive });
             use_statements.use_crate(quote! { use ice_rs::encoding::* });
 
             for item in &self.structs {
+                let mut custom_names = Vec::new();
                 for member in &item.members {
-                    match &member.r#type {
-                        IceType::CustomType(name) => {
-                            let use_statement = self.type_map.as_ref().borrow().get(name).unwrap().clone();
-                            if !use_statement.eq(&self.snake_name()) {
-                                let super_token = format_ident!("{}", super_mod);
-                                let use_token = format_ident!("{}", use_statement);
-                                use_statements.use_crate(quote! { use crate::#super_token::#use_token::* });
-                            }
+                    Self::collect_custom_type_names(&member.r#type, &mut custom_names);
+                }
+                for name in custom_names {
+                    if let Some(use_statement) = self.resolve_type_module(&name) {
+                        if !use_statement.eq(&self.snake_name()) {
+                            let super_token = format_ident!("{}", super_mod);
+                            let use_token = format_ident!("{}", use_statement);
+                            use_statements.use_crate(quote! { use crate::#super_token::#use_token::* });
                         }
-                        _ => {}
                     }
                 }
             }
@@ -151,17 +228,17 @@ impl Module {
             use_statements.use_crate(quote! { use ice_rs::encoding::* });
 
             for item in &self.classes {
+                let mut custom_names = Vec::new();
                 for member in &item.members {
-                    match &member.r#type {
-                        IceType::CustomType(name) => {
-                            let use_statement = self.type_map.as_ref().borrow().get(name).unwrap().clone();
-                            if !use_statement.eq(&self.snake_name()) {
-                                let super_token = format_ident!("{}", super_mod);
-                                let use_token = format_ident!("{}", use_statement);
-                                use_statements.use_crate(quote! { use crate::#super_token::#use_token::* });
-                            }
+                    Self::collect_custom_type_names(&member.r#type, &mut custom_names);
+                }
+                for name in custom_names {
+                    if let Some(use_statement) = self.resolve_type_module(&name) {
+                        if !use_statement.eq(&self.snake_name()) {
+                            let super_token = format_ident!("{}", super_mod);
+                            let use_token = format_ident!("{}", use_statement);
+                            use_statements.use_crate(quote! { use crate::#super_token::#use_token::* });
                         }
-                        _ => {}
                     }
                 }
             }
@@ -177,36 +254,23 @@ impl Module {
                 for func in &item.functions {
                     use_statements.use_crate(quote! { use std::collections::HashMap });
 
+                    let mut custom_names = Vec::new();
                     for arg in &func.arguments {
-                        match &arg.r#type {
-                            IceType::CustomType(name) => {
-                                let use_statement = self.type_map.as_ref().borrow().get(name).unwrap().clone();
-                                if !use_statement.eq(&self.snake_name()) {
-                                    let super_token = format_ident!("{}", super_mod);
-                                    let use_token = format_ident!("{}", use_statement);
-                                    use_statements.use_crate(quote! { use crate::#super_token::#use_token::* });
-                                }
-                            }
-                            _ => {}
-                        };
+                        Self::collect_custom_type_names(&arg.r#type, &mut custom_names);
                     }
-
-                    match &func.throws.r#type {
-                        Some(throws) => {
-                            match throws {
-                                IceType::CustomType(name) => {
-                                    let use_statement = self.type_map.as_ref().borrow().get(name).unwrap().clone();
-                                    if !use_statement.eq(&self.snake_name()) {
-                                        let super_token = format_ident!("{}", super_mod);
-                                        let use_token = format_ident!("{}", use_statement);
-                                        use_statements.use_crate(quote! { use crate::#super_token::#use_token::* });
-                                    }
-                                }
-                                _ => {}
-                            };
+                    Self::collect_custom_type_names(&func.return_type.r#type, &mut custom_names);
+                    if let Some(throws) = func.throws.types.first() {
+                        Self::collect_custom_type_names(throws, &mut custom_names);
+                    }
+                    for name in custom_names {
+                        if let Some(use_statement) = self.resolve_type_module(&name) {
+                            if !use_statement.eq(&self.snake_name()) {
+                                let super_token = format_ident!("{}", super_mod);
+                                let use_token = format_ident!("{}", use_statement);
+                                use_statements.use_crate(quote! { use crate::#super_token::#use_token::* });
+                            }
                         }
-                        _ => {}
-                    };
+                    }
                 }
             }
         }
@@ -238,16 +302,19 @@ impl Module {
             sub_module.generate(&dest.join(Path::new(&mod_name)), &use_path)?;
         }
 
+        for enumeration in &self.enumerations {
+            tokens.push(enumeration.generate()?);
+        }
+
         for (id, vartype) in &self.typedefs {
+            if self.should_emit_typedef_after_classes(id, vartype) {
+                continue;
+            }
             let id_str = format_ident!("{}", pascalcase::to_pascal_case(&id));
             let var_token = vartype.token();
             tokens.push(quote! {
-                type #id_str = #var_token;
+                pub type #id_str = #var_token;
             });
-        }
-
-        for enumeration in &self.enumerations {
-            tokens.push(enumeration.generate()?);
         }
 
         for structure in &self.structs {
@@ -256,6 +323,26 @@ impl Module {
 
         for class in &self.classes {
             tokens.push(class.generate(&self.full_name)?);
+        }
+
+        for (id, vartype) in &self.typedefs {
+            if !self.should_emit_typedef_after_classes(id, vartype) {
+                continue;
+            }
+            let id_str = format_ident!("{}", pascalcase::to_pascal_case(&id));
+            let var_token = if let IceType::SequenceType(inner) = vartype {
+                if let IceType::CustomType(elem) = &**inner {
+                    let elem_ident = format_ident!("{}", elem);
+                    quote! { Vec<Box<#elem_ident>> }
+                } else {
+                    vartype.token()
+                }
+            } else {
+                vartype.token()
+            };
+            tokens.push(quote! {
+                pub type #id_str = #var_token;
+            });
         }
 
         for exception in &self.exceptions {

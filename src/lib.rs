@@ -39,6 +39,8 @@ extern crate pest_derive;
 #[macro_use]
 extern crate ice_derive;
 
+pub use ice_derive::IceDerive;
+
 pub mod errors;
 pub mod protocol;
 pub mod encoding;

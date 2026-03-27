@@ -1,6 +1,7 @@
 use quote::__private::TokenStream;
 use quote::*;
 use regex::Regex;
+use inflector::cases::{classcase, snakecase};
 
 #[derive(Clone, Debug)]
 pub enum IceType {
@@ -12,38 +13,63 @@ pub enum IceType {
     LongType,
     FloatType,
     DoubleType,
-    StringType,    
+    StringType,
     SequenceType(Box<IceType>),
     DictType(Box<IceType>, Box<IceType>),
     Optional(Box<IceType>, u8),
-    CustomType(String)
+    /// Slice proxy type (Interface*).
+    Proxy(Box<IceType>),
+    CustomType(String),
+}
+
+fn scoped_tokens(name: &str) -> TokenStream {
+    let parts: Vec<&str> = name.split("::").collect();
+    // Sibling submodules under `gen/` (e.g. super::ice from mumble_server)
+    let mut ts = quote! { super };
+    for (i, part) in parts.iter().enumerate() {
+        let id = if i < parts.len() - 1 {
+            format_ident!("{}", snakecase::to_snake_case(part))
+        } else {
+            format_ident!("{}", part)
+        };
+        ts = quote! { #ts :: #id };
+    }
+    ts
 }
 
 impl IceType {
     pub fn from(text: &str) -> Result<IceType, Box<dyn std::error::Error>> {
-        let type_re = Regex::new(
-            r#"(?x)
-            (void) |
-            (bool) |
-            (byte) |
-            (short) |
-            (int) |
-            (long) |
-            (float) |
-            (double) |
-            (string) |
-            (sequence)<(.+)> |
-            (dictionary)<(.+),\s*(.+)> |
-            "#
-        )?; 
+        let text = text.trim();
+        if text.ends_with('*') {
+            let base = text[..text.len() - 1].trim_end();
+            if !base.is_empty() && base != "void" {
+                return Ok(IceType::Proxy(Box::new(IceType::from(base)?)));
+            }
+        }
 
-        let captures = type_re.captures(text.trim()).map(|captures| {
+        let type_re = Regex::new(
+            r#"(?x)^
+            (void)$ |
+            (bool)$ |
+            (byte)$ |
+            (short)$ |
+            (int)$ |
+            (long)$ |
+            (float)$ |
+            (double)$ |
+            (string)$ |
+            (sequence)<(.+)>$ |
+            (dictionary)<(.+),\s*(.+)>$ |
+            "#,
+        )?;
+
+        let captures = type_re.captures(text).map(|captures| {
             captures
-                .iter() // All the captured groups
-                .skip(1) // Skipping the complete match
-                .flat_map(|c| c) // Ignoring all empty optional matches
-                .map(|c| c.as_str()) // Grab the original strings
-                .collect::<Vec<_>>() // Create a vector
+                .iter()
+                .skip(1)
+                .flat_map(|c| c)
+                .map(|c| c.as_str())
+                .collect::<Vec<_>>()
         });
 
         match captures.as_ref().map(|c| c.as_slice()) {
@@ -56,13 +82,12 @@ impl IceType {
             Some(["float"]) => Ok(IceType::FloatType),
             Some(["double"]) => Ok(IceType::DoubleType),
             Some(["string"]) => Ok(IceType::StringType),
-            Some(["sequence", x]) => {
-                Ok(IceType::SequenceType(Box::new(IceType::from(x)?)))
-            },
-            Some(["dictionary", x, y]) => {
-                Ok(IceType::DictType(Box::new(IceType::from(x)?), Box::new(IceType::from(y)?)))
-            },
-            _ => Ok(IceType::CustomType(text.trim().to_string()))
+            Some(["sequence", x]) => Ok(IceType::SequenceType(Box::new(IceType::from(x.trim())?))),
+            Some(["dictionary", x, y]) => Ok(IceType::DictType(
+                Box::new(IceType::from(x.trim())?),
+                Box::new(IceType::from(y.trim())?),
+            )),
+            _ => Ok(IceType::CustomType(text.to_string())),
         }
     }
 
@@ -78,9 +103,19 @@ impl IceType {
             IceType::DoubleType => String::from("f64"),
             IceType::StringType => String::from("String"),
             IceType::SequenceType(type_name) => format!("Vec<{}>", type_name.rust_type()),
-            IceType::DictType(key_type, value_type) => format!("HashMap<{}, {}>", key_type.rust_type(), value_type.rust_type()),
+            IceType::DictType(key_type, value_type) => {
+                format!(
+                    "HashMap<{}, {}>",
+                    key_type.rust_type(),
+                    value_type.rust_type()
+                )
+            }
             IceType::Optional(type_name, _) => format!("Option<{}>", type_name.rust_type()),
-            IceType::CustomType(type_name) => format!("{}", type_name),
+            IceType::Proxy(inner) => match &**inner {
+                IceType::CustomType(n) => format!("{}Prx", classcase::to_class_case(n)),
+                _ => format!("{}Prx", inner.rust_type()),
+            },
+            IceType::CustomType(type_name) => type_name.clone(),
         }
     }
 
@@ -88,7 +123,7 @@ impl IceType {
         match self {
             IceType::Optional(type_name, _) => {
                 let sub_type = type_name.token();
-                quote!{ Option::<#sub_type> }
+                quote! { Option::<#sub_type> }
             }
             _ => self.token(),
         }
@@ -107,31 +142,46 @@ impl IceType {
             IceType::StringType => quote! { String },
             IceType::SequenceType(type_name) => {
                 let sub_type = type_name.token();
-                quote!{ Vec<#sub_type> }
-            },
+                quote! { Vec<#sub_type> }
+            }
             IceType::DictType(key_type, value_type) => {
                 let key = key_type.token();
                 let value = value_type.token();
-                quote!{ HashMap<#key, #value> }
-            },
+                quote! { HashMap<#key, #value> }
+            }
             IceType::Optional(type_name, _) => {
                 let sub_type = type_name.token();
-                quote!{ Option<#sub_type> }
+                quote! { Option<#sub_type> }
+            }
+            IceType::Proxy(inner) => match &**inner {
+                IceType::CustomType(name) => {
+                    let id = format_ident!("{}Prx", classcase::to_class_case(name));
+                    quote! { #id }
+                }
+                other => {
+                    let inner_t = other.token();
+                    quote! { #inner_t }
+                }
             },
             IceType::CustomType(type_name) => {
-                let id = format_ident!("{}", type_name);
-                quote!{ #id }
-            },
+                if type_name.contains("::") {
+                    scoped_tokens(type_name)
+                } else {
+                    let id = format_ident!("{}", classcase::to_class_case(type_name));
+                    quote! { #id }
+                }
+            }
         }
     }
 
     pub fn as_ref(&self) -> bool {
         match self {
-            IceType::StringType |
-            IceType::SequenceType(_) |
-            IceType::DictType(_, _) |
-            IceType::CustomType(_) => true,
-            _ => false
+            IceType::StringType
+            | IceType::SequenceType(_)
+            | IceType::DictType(_, _)
+            | IceType::CustomType(_)
+            | IceType::Proxy(_) => true,
+            _ => false,
         }
     }
 }

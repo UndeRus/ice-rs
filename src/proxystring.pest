@@ -1,6 +1,6 @@
 proxystring = { SOI ~ (direct_proxy | indirect_proxy) ~ EOI }
 
-WHITESPACE = _{ " " }
+WHITESPACE = _{ " " | "\t" }
 
 direct_proxy = { ident ~ ":" ~ endpoint }
 
@@ -9,7 +9,7 @@ keyword_at = { "@" }
 ident = @{ (!":" ~ !keyword_at ~ ANY)* }
 adapter = { keyword_at ~ ident }
 hostname = @{ (ASCII_ALPHA | "-")* }
-ip = {
+ip = @{
 	ASCII_DIGIT{1,3} ~ "." ~
     ASCII_DIGIT{1,3} ~ "." ~
     ASCII_DIGIT{1,3} ~ "." ~
@@ -17,7 +17,7 @@ ip = {
 }
 port = { ASCII_DIGIT{2,5} }
 
-endpoint = { endpoint_protocol ~ (endpoint_host | endpoint_port)* }
+endpoint = { endpoint_protocol ~ WHITESPACE* ~ (endpoint_host | endpoint_port) ~ (WHITESPACE* ~ (endpoint_host | endpoint_port))* }
 endpoint_protocol = { "default" | "tcp" | "ssl" }
 endpoint_host = { "-h" ~ (ip | hostname) }
 endpoint_port = { "-p" ~ port }
