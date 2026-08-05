@@ -13,7 +13,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 
 /// Выполняет вызов на прокси: подмешивает контекст, ограничивает по времени и
 /// разбирает ошибку в вариант [`Error`].
@@ -22,8 +21,10 @@ use tokio::sync::Mutex;
 /// задаётся билдером.
 macro_rules! call {
     ($self:expr, $cx:expr, |$prx:ident, $ctx:ident| $body:expr) => {{
-        let mut guard = $self.inner.prx.lock().await;
-        let $prx = &mut *guard;
+        // Ни мьютекса, ни `&mut`: методы прокси берут `&self`, а соединение
+        // мультиплексирует запросы по request_id — поэтому вызовы к одному
+        // серверу идут параллельно.
+        let $prx = &$self.inner.prx;
         let $ctx = $self.inner.shared.ctx();
         let deadline = $self.inner.shared.request_timeout;
         match tokio::time::timeout(deadline, $body).await {
@@ -38,7 +39,7 @@ macro_rules! call {
 
 struct ServerInner {
     id: AtomicI32,
-    prx: Mutex<ServerPrx>,
+    prx: ServerPrx,
     shared: Arc<Shared>,
     client: MurmurClient,
 }
@@ -57,7 +58,7 @@ impl VirtualServer {
         VirtualServer {
             inner: Arc::new(ServerInner {
                 id: AtomicI32::new(id.get()),
-                prx: Mutex::new(prx),
+                prx,
                 shared,
                 client,
             }),
@@ -75,7 +76,7 @@ impl VirtualServer {
 
     /// Спрашивает id у сервера и запоминает. Нужно после `getAllServers`, где
     /// приходят только прокси.
-    pub(crate) async fn refresh_id(&mut self) -> Result<ServerId> {
+    pub(crate) async fn refresh_id(&self) -> Result<ServerId> {
         let cx = FaultContext::new();
         let id = call!(self, cx, |prx, ctx| prx.id(ctx))?;
         self.inner.id.store(id, Ordering::Relaxed);
@@ -466,9 +467,9 @@ impl VirtualServer {
         let mut groups: slice::GroupList = Vec::new();
         let mut inherit = false;
         {
-            let mut guard = self.inner.prx.lock().await;
             let ctx = self.inner.shared.ctx();
-            guard
+            self.inner
+                .prx
                 .get_acl(c.get(), &mut acls, &mut groups, &mut inherit, ctx)
                 .await
                 .map_err(|e| from_wire(e, cx))?;
@@ -918,9 +919,21 @@ impl VirtualServer {
             .map_err(|e| from_wire(e, self.cx()))
     }
 
+    /// Пик одновременных запросов на соединении этого сервера.
+    ///
+    /// Больше единицы означает, что вызовы действительно мультиплексируются, а
+    /// не выстраиваются в очередь. Нужно тестам: на локальном сервере вызовы
+    /// быстрее шума таймера, поэтому конкурентность проверяется фактом.
+    pub async fn max_in_flight(&self) -> usize {
+        match self.inner.prx.proxy.connection().await {
+            Ok(c) => c.max_in_flight(),
+            Err(_) => 0,
+        }
+    }
+
     /// Escape hatch: сгенерированный прокси `Server` с готовым контекстом.
-    pub async fn raw(&self) -> crate::raw::RawServer<'_> {
-        crate::raw::RawServer::new(self.inner.prx.lock().await, self.inner.shared.clone())
+    pub async fn raw(&self) -> crate::raw::RawServer {
+        crate::raw::RawServer::new(self.inner.prx.clone(), self.inner.shared.clone())
     }
 
     /// Удобный конструктор записи ACL для группы.

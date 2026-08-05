@@ -153,7 +153,7 @@ run_group() {
     return $rc
 }
 
-ALL_GROUPS=(client events reattach auth)
+ALL_GROUPS=(client runtime events reattach auth)
 declare -a REQUESTED=("$@")
 
 # Опечатка в имени группы иначе привела бы к «зелёному» прогону, в котором не
@@ -189,6 +189,12 @@ FAILED=()
 # Исходящая сторона.
 if want client; then
     run_group "client (исходящие вызовы)" --test e2e || FAILED+=("client")
+fi
+
+# Свойства слоя соединения: однопоточный рантайм и мультиплексирование.
+if want runtime; then
+    run_group "runtime (однопоточность и конкурентность)" --test e2e_runtime \
+        || FAILED+=("runtime")
 fi
 
 # Колбеки, кроме деструктивного: он останавливает виртуальный сервер.

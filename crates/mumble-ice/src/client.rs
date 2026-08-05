@@ -47,14 +47,9 @@ struct ClientInner {
     shared: Arc<Shared>,
     /// Реестр подписок и владелец Ice-адаптера для входящих вызовов.
     registry: Arc<crate::events::Registry>,
-    /// Одно соединение под мьютексом.
-    ///
-    /// Сгенерированные методы прокси берут `&mut self`, а нижний слой всё равно
-    /// держит один запрос в полёте на соединение, так что мьютекс здесь честно
-    /// отражает возможности транспорта. Наружу это не протекает: методы фасада
-    /// берут `&self`, поэтому когда появится мультиплексирование, публичный API
-    /// не изменится.
-    meta: Mutex<MetaPrx>,
+    /// Прокси без мьютекса: методы сгенерированного кода теперь берут `&self`,
+    /// а соединение мультиплексирует запросы по request_id.
+    meta: MetaPrx,
     endpoint: Endpoint,
     /// Кэш разрешённых виртуальных серверов, чтобы `server()` не ходил на сервер
     /// повторно.
@@ -107,7 +102,7 @@ impl MurmurClient {
         &self,
         prx: &murmur_slice::mumble_server::MetaCallbackPrx,
     ) -> Result<()> {
-        let mut meta = self.inner.meta.lock().await;
+        let meta = &self.inner.meta;
         let ctx = self.inner.shared.ctx();
         meta.add_callback(prx, ctx)
             .await
@@ -142,7 +137,7 @@ impl MurmurClient {
         }
         let cx = FaultContext::new().server(id);
         let prx = {
-            let mut meta = self.inner.meta.lock().await;
+            let meta = &self.inner.meta;
             let ctx = self.inner.shared.ctx();
             meta.get_server(id.get(), ctx)
                 .await
@@ -160,7 +155,7 @@ impl MurmurClient {
     /// Только запущенные виртуальные серверы.
     pub async fn booted_servers(&self) -> Result<Vec<VirtualServer>> {
         let list = {
-            let mut meta = self.inner.meta.lock().await;
+            let meta = &self.inner.meta;
             let ctx = self.inner.shared.ctx();
             meta.get_booted_servers(ctx)
                 .await
@@ -172,7 +167,7 @@ impl MurmurClient {
     /// Все определённые виртуальные серверы, включая остановленные.
     pub async fn servers(&self) -> Result<Vec<VirtualServer>> {
         let list = {
-            let mut meta = self.inner.meta.lock().await;
+            let meta = &self.inner.meta;
             let ctx = self.inner.shared.ctx();
             meta.get_all_servers(ctx)
                 .await
@@ -189,13 +184,13 @@ impl MurmurClient {
 
     pub async fn create_server(&self) -> Result<VirtualServer> {
         let prx = {
-            let mut meta = self.inner.meta.lock().await;
+            let meta = &self.inner.meta;
             let ctx = self.inner.shared.ctx();
             meta.new_server(ctx)
                 .await
                 .map_err(|e| from_wire(e, FaultContext::new()))?
         };
-        let mut vs = VirtualServer::new(ServerId(-1), prx, self.clone());
+        let vs = VirtualServer::new(ServerId(-1), prx, self.clone());
         let id = vs.refresh_id().await?;
         self.inner.servers.lock().await.insert(id.get(), vs.clone());
         Ok(vs)
@@ -208,7 +203,7 @@ impl MurmurClient {
         let mut out = Vec::with_capacity(list.len());
         let mut cache = Vec::new();
         for prx in list {
-            let mut vs = VirtualServer::new(ServerId(-1), prx, self.clone());
+            let vs = VirtualServer::new(ServerId(-1), prx, self.clone());
             let id = vs.refresh_id().await?;
             cache.push((id.get(), vs.clone()));
             out.push(vs);
@@ -229,7 +224,7 @@ impl MurmurClient {
         let mut patch = 0i32;
         let mut text = String::new();
         {
-            let mut meta = self.inner.meta.lock().await;
+            let meta = &self.inner.meta;
             let ctx = self.inner.shared.ctx();
             meta.get_version(&mut major, &mut minor, &mut patch, &mut text, ctx)
                 .await
@@ -244,7 +239,7 @@ impl MurmurClient {
     }
 
     pub async fn uptime(&self) -> Result<Duration> {
-        let mut meta = self.inner.meta.lock().await;
+        let meta = &self.inner.meta;
         let ctx = self.inner.shared.ctx();
         let secs = meta
             .get_uptime(ctx)
@@ -254,7 +249,7 @@ impl MurmurClient {
     }
 
     pub async fn default_config(&self) -> Result<BTreeMap<String, String>> {
-        let mut meta = self.inner.meta.lock().await;
+        let meta = &self.inner.meta;
         let ctx = self.inner.shared.ctx();
         let m = meta
             .get_default_conf(ctx)
@@ -265,7 +260,7 @@ impl MurmurClient {
 
     /// Текст `MumbleServer.ice`, как его отдаёт сервер.
     pub async fn slice_source(&self) -> Result<String> {
-        let mut meta = self.inner.meta.lock().await;
+        let meta = &self.inner.meta;
         let ctx = self.inner.shared.ctx();
         meta.get_slice(ctx)
             .await
@@ -273,7 +268,7 @@ impl MurmurClient {
     }
 
     pub async fn slice_checksums(&self) -> Result<BTreeMap<String, String>> {
-        let mut meta = self.inner.meta.lock().await;
+        let meta = &self.inner.meta;
         let ctx = self.inner.shared.ctx();
         let m = meta
             .get_slice_checksums(ctx)
@@ -283,7 +278,7 @@ impl MurmurClient {
     }
 
     pub async fn database_state(&self) -> Result<DbState> {
-        let mut meta = self.inner.meta.lock().await;
+        let meta = &self.inner.meta;
         let ctx = self.inner.shared.ctx();
         let s = meta
             .get_assumed_database_state(ctx)
@@ -293,7 +288,7 @@ impl MurmurClient {
     }
 
     pub async fn set_database_state(&self, state: DbState) -> Result<()> {
-        let mut meta = self.inner.meta.lock().await;
+        let meta = &self.inner.meta;
         let ctx = self.inner.shared.ctx();
         let raw = murmur_slice::mumble_server::Dbstate::from(state);
         meta.set_assumed_database_state(&raw, ctx)
@@ -304,8 +299,8 @@ impl MurmurClient {
     /// Escape hatch: сгенерированный прокси `Meta` с готовым контекстом.
     ///
     /// Обёрнуто около двух третей операций; остальное — здесь.
-    pub async fn raw_meta(&self) -> crate::raw::RawMeta<'_> {
-        crate::raw::RawMeta::new(self.inner.meta.lock().await, self.inner.shared.clone())
+    pub async fn raw_meta(&self) -> crate::raw::RawMeta {
+        crate::raw::RawMeta::new(self.inner.meta.clone(), self.inner.shared.clone())
     }
 }
 
@@ -465,6 +460,16 @@ impl MurmurClientBuilder {
             .await
             .map_err(|e| from_wire(e, FaultContext::new()))?;
 
+        // Нижний слой открывает соединения лениво — это нужно, чтобы прокси
+        // можно было десериализовать без дозвона. Но `connect()`, который не
+        // проверяет достижимость сервера, — неожиданное поведение: ошибка тогда
+        // всплыла бы на первом же вызове где-то в глубине бота. Поэтому
+        // соединение здесь устанавливаем принудительно.
+        meta.proxy
+            .connection()
+            .await
+            .map_err(|e| from_wire(e, FaultContext::new()))?;
+
         let shared = Arc::new(Shared {
             context: Arc::new(context),
             request_timeout: self.request_timeout,
@@ -477,7 +482,7 @@ impl MurmurClientBuilder {
             inner: Arc::new(ClientInner {
                 registry: Arc::new(crate::events::Registry::new(shared.clone())),
                 shared,
-                meta: Mutex::new(meta),
+                meta,
                 endpoint,
                 servers: Mutex::new(BTreeMap::new()),
             }),

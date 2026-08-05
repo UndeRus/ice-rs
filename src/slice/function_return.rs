@@ -35,11 +35,14 @@ impl FunctionReturn {
                 }
             }
             IceType::Proxy(_) => {
+                // Возвращённый прокси делит соединение с родительским: та же
+                // идентичность на том же эндпоинте.
+                //
+                // Раньше здесь на КАЖДЫЙ вызов поднимался новый `Communicator`
+                // и открывался новый сокет, а эндпоинт из ответа выбрасывался.
                 quote! {
                     let proxy_data = ProxyData::from_bytes(&reply.body.data[read_bytes as usize..reply.body.data.len()], &mut read_bytes)?;
-                    let proxy_string = format!("{}:{} -h {} -p {}", proxy_data.identity_string(), if proxy_data.secure { "ssl" } else { "tcp" }, self.proxy.host, self.proxy.port);
-                    let mut comm = ice_rs::communicator::Communicator::new().await?;
-                    let proxy = comm.string_to_proxy(&proxy_string).await?;
+                    let proxy = self.proxy.with_ident(&proxy_data.identity_string());
                     #return_token::unchecked_cast(proxy).await
                 }
             }

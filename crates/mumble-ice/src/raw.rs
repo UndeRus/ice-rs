@@ -7,27 +7,27 @@
 use crate::client::Shared;
 use murmur_slice::mumble_server::{MetaPrx, ServerPrx};
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 use std::sync::Arc;
-use tokio::sync::MutexGuard;
 
 /// Одолженный прокси `Server`.
 ///
 /// ```ignore
 /// use murmur_slice::mumble_server::Server as _;
 ///
-/// let mut raw = server.raw().await;
-/// let ctx = raw.ctx();
-/// let checksums = raw.get_all_conf(ctx).await?;
+/// let raw = server.raw().await;
+/// let conf = raw.get_all_conf(raw.ctx()).await?;
 /// ```
-pub struct RawServer<'a> {
-    guard: MutexGuard<'a, ServerPrx>,
+///
+/// `&mut` больше не нужен: методы прокси берут `&self`.
+pub struct RawServer {
+    prx: ServerPrx,
     shared: Arc<Shared>,
 }
 
-impl<'a> RawServer<'a> {
-    pub(crate) fn new(guard: MutexGuard<'a, ServerPrx>, shared: Arc<Shared>) -> RawServer<'a> {
-        RawServer { guard, shared }
+impl RawServer {
+    pub(crate) fn new(prx: ServerPrx, shared: Arc<Shared>) -> RawServer {
+        RawServer { prx, shared }
     }
 
     /// Ice-контекст (секрет и прочее) — последний аргумент любой операции.
@@ -36,28 +36,22 @@ impl<'a> RawServer<'a> {
     }
 }
 
-impl<'a> Deref for RawServer<'a> {
+impl Deref for RawServer {
     type Target = ServerPrx;
     fn deref(&self) -> &ServerPrx {
-        &self.guard
-    }
-}
-
-impl<'a> DerefMut for RawServer<'a> {
-    fn deref_mut(&mut self) -> &mut ServerPrx {
-        &mut self.guard
+        &self.prx
     }
 }
 
 /// Одолженный прокси `Meta`.
-pub struct RawMeta<'a> {
-    guard: MutexGuard<'a, MetaPrx>,
+pub struct RawMeta {
+    prx: MetaPrx,
     shared: Arc<Shared>,
 }
 
-impl<'a> RawMeta<'a> {
-    pub(crate) fn new(guard: MutexGuard<'a, MetaPrx>, shared: Arc<Shared>) -> RawMeta<'a> {
-        RawMeta { guard, shared }
+impl RawMeta {
+    pub(crate) fn new(prx: MetaPrx, shared: Arc<Shared>) -> RawMeta {
+        RawMeta { prx, shared }
     }
 
     pub fn ctx(&self) -> Option<HashMap<String, String>> {
@@ -65,15 +59,9 @@ impl<'a> RawMeta<'a> {
     }
 }
 
-impl<'a> Deref for RawMeta<'a> {
+impl Deref for RawMeta {
     type Target = MetaPrx;
     fn deref(&self) -> &MetaPrx {
-        &self.guard
-    }
-}
-
-impl<'a> DerefMut for RawMeta<'a> {
-    fn deref_mut(&mut self) -> &mut MetaPrx {
-        &mut self.guard
+        &self.prx
     }
 }

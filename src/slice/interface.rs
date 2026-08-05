@@ -159,32 +159,34 @@ impl Interface {
                 }
             }
 
+            /// `Clone` дешёвый: внутри `Proxy`, а соединение живёт за `Arc`.
+            #[derive(Clone)]
             pub struct #id_proxy_token {
                 pub proxy: Proxy
             }
 
             #[async_trait]
             impl IceObject for #id_proxy_token {
-                async fn ice_ping(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>>
+                async fn ice_ping(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>>
                 {
                     self.proxy.dispatch::<ProtocolError>(&String::from("ice_ping"), 1, &Encapsulation::empty(), None).await?;
                     Ok(())
                 }
 
-                async fn ice_is_a(&mut self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
+                async fn ice_is_a(&self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
                     let reply = self.proxy.dispatch::<ProtocolError>(&String::from("ice_isA"), 1, &Encapsulation::from(String::from(#type_id_token).to_bytes()?), None).await?;
                     let mut read_bytes: i32 = 0;
                     bool::from_bytes(&reply.body.data, &mut read_bytes)
                 }
 
-                async fn ice_id(&mut self) -> Result<String, Box<dyn std::error::Error + Sync + Send>>
+                async fn ice_id(&self) -> Result<String, Box<dyn std::error::Error + Sync + Send>>
                 {
                     let reply = self.proxy.dispatch::<ProtocolError>(&String::from("ice_id"), 1, &Encapsulation::empty(), None).await?;
                     let mut read_bytes: i32 = 0;
                     String::from_bytes(&reply.body.data, &mut read_bytes)
                 }
 
-                async fn ice_ids(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>>
+                async fn ice_ids(&self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>>
                 {
                     let reply = self.proxy.dispatch::<ProtocolError>(&String::from("ice_ids"), 1, &Encapsulation::empty(), None).await?;
                     let mut read_bytes: i32 = 0;

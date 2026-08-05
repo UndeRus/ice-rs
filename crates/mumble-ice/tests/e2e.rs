@@ -320,7 +320,7 @@ async fn raw_escape_hatch() {
     let client = connect().await;
     let srv = client.only_server().await.expect("only_server");
 
-    let mut raw = srv.raw().await;
+    let raw = srv.raw().await;
     let ctx = raw.ctx();
     let conf = raw.get_all_conf(ctx).await.expect("get_all_conf через raw");
     assert!(!conf.is_empty());

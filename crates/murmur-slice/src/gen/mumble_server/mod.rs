@@ -1084,38 +1084,38 @@ impl FromBytes for ReadOnlyModeException {
 #[async_trait]
 pub trait ServerCallback: IceObject {
     async fn user_connected(
-        &mut self,
+        &self,
         state: &User,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn user_disconnected(
-        &mut self,
+        &self,
         state: &User,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn user_state_changed(
-        &mut self,
+        &self,
         state: &User,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn user_text_message(
-        &mut self,
+        &self,
         state: &User,
         message: &TextMessage,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn channel_created(
-        &mut self,
+        &self,
         state: &Channel,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn channel_removed(
-        &mut self,
+        &self,
         state: &Channel,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn channel_state_changed(
-        &mut self,
+        &self,
         state: &Channel,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -1384,18 +1384,20 @@ impl IceObjectServer for ServerCallbackServer {
         }
     }
 }
+#[doc = r" `Clone` дешёвый: внутри `Proxy`, а соединение живёт за `Arc`."]
+#[derive(Clone)]
 pub struct ServerCallbackPrx {
     pub proxy: Proxy,
 }
 #[async_trait]
 impl IceObject for ServerCallbackPrx {
-    async fn ice_ping(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ping(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         self.proxy
             .dispatch::<ProtocolError>(&String::from("ice_ping"), 1, &Encapsulation::empty(), None)
             .await?;
         Ok(())
     }
-    async fn ice_is_a(&mut self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_is_a(&self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(
@@ -1408,7 +1410,7 @@ impl IceObject for ServerCallbackPrx {
         let mut read_bytes: i32 = 0;
         bool::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_id(&mut self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_id(&self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_id"), 1, &Encapsulation::empty(), None)
@@ -1416,7 +1418,7 @@ impl IceObject for ServerCallbackPrx {
         let mut read_bytes: i32 = 0;
         String::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_ids(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ids(&self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_ids"), 1, &Encapsulation::empty(), None)
@@ -1428,7 +1430,7 @@ impl IceObject for ServerCallbackPrx {
 #[async_trait]
 impl ServerCallback for ServerCallbackPrx {
     async fn user_connected(
-        &mut self,
+        &self,
         state: &User,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1445,7 +1447,7 @@ impl ServerCallback for ServerCallbackPrx {
         Ok(())
     }
     async fn user_disconnected(
-        &mut self,
+        &self,
         state: &User,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1462,7 +1464,7 @@ impl ServerCallback for ServerCallbackPrx {
         Ok(())
     }
     async fn user_state_changed(
-        &mut self,
+        &self,
         state: &User,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1479,7 +1481,7 @@ impl ServerCallback for ServerCallbackPrx {
         Ok(())
     }
     async fn user_text_message(
-        &mut self,
+        &self,
         state: &User,
         message: &TextMessage,
         context: Option<HashMap<String, String>>,
@@ -1498,7 +1500,7 @@ impl ServerCallback for ServerCallbackPrx {
         Ok(())
     }
     async fn channel_created(
-        &mut self,
+        &self,
         state: &Channel,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1515,7 +1517,7 @@ impl ServerCallback for ServerCallbackPrx {
         Ok(())
     }
     async fn channel_removed(
-        &mut self,
+        &self,
         state: &Channel,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1532,7 +1534,7 @@ impl ServerCallback for ServerCallbackPrx {
         Ok(())
     }
     async fn channel_state_changed(
-        &mut self,
+        &self,
         state: &Channel,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -1588,7 +1590,7 @@ impl ice_rs::encoding::FromBytes for ServerCallbackPrx {
 #[async_trait]
 pub trait ServerContextCallback: IceObject {
     async fn context_action(
-        &mut self,
+        &self,
         action: &String,
         usr: &User,
         session: i32,
@@ -1716,18 +1718,20 @@ impl IceObjectServer for ServerContextCallbackServer {
         }
     }
 }
+#[doc = r" `Clone` дешёвый: внутри `Proxy`, а соединение живёт за `Arc`."]
+#[derive(Clone)]
 pub struct ServerContextCallbackPrx {
     pub proxy: Proxy,
 }
 #[async_trait]
 impl IceObject for ServerContextCallbackPrx {
-    async fn ice_ping(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ping(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         self.proxy
             .dispatch::<ProtocolError>(&String::from("ice_ping"), 1, &Encapsulation::empty(), None)
             .await?;
         Ok(())
     }
-    async fn ice_is_a(&mut self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_is_a(&self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(
@@ -1742,7 +1746,7 @@ impl IceObject for ServerContextCallbackPrx {
         let mut read_bytes: i32 = 0;
         bool::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_id(&mut self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_id(&self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_id"), 1, &Encapsulation::empty(), None)
@@ -1750,7 +1754,7 @@ impl IceObject for ServerContextCallbackPrx {
         let mut read_bytes: i32 = 0;
         String::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_ids(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ids(&self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_ids"), 1, &Encapsulation::empty(), None)
@@ -1762,7 +1766,7 @@ impl IceObject for ServerContextCallbackPrx {
 #[async_trait]
 impl ServerContextCallback for ServerContextCallbackPrx {
     async fn context_action(
-        &mut self,
+        &self,
         action: &String,
         usr: &User,
         session: i32,
@@ -1824,7 +1828,7 @@ impl ice_rs::encoding::FromBytes for ServerContextCallbackPrx {
 #[async_trait]
 pub trait ServerAuthenticator: IceObject {
     async fn authenticate(
-        &mut self,
+        &self,
         name: &String,
         pw: &String,
         certificates: &CertificateList,
@@ -1835,23 +1839,23 @@ pub trait ServerAuthenticator: IceObject {
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_info(
-        &mut self,
+        &self,
         id: i32,
         info: &mut UserInfoMap,
         context: Option<HashMap<String, String>>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
     async fn name_to_id(
-        &mut self,
+        &self,
         name: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn id_to_name(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
     async fn id_to_texture(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<Texture, Box<dyn std::error::Error + Send + Sync>>;
@@ -2090,18 +2094,20 @@ impl IceObjectServer for ServerAuthenticatorServer {
         }
     }
 }
+#[doc = r" `Clone` дешёвый: внутри `Proxy`, а соединение живёт за `Arc`."]
+#[derive(Clone)]
 pub struct ServerAuthenticatorPrx {
     pub proxy: Proxy,
 }
 #[async_trait]
 impl IceObject for ServerAuthenticatorPrx {
-    async fn ice_ping(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ping(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         self.proxy
             .dispatch::<ProtocolError>(&String::from("ice_ping"), 1, &Encapsulation::empty(), None)
             .await?;
         Ok(())
     }
-    async fn ice_is_a(&mut self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_is_a(&self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(
@@ -2116,7 +2122,7 @@ impl IceObject for ServerAuthenticatorPrx {
         let mut read_bytes: i32 = 0;
         bool::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_id(&mut self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_id(&self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_id"), 1, &Encapsulation::empty(), None)
@@ -2124,7 +2130,7 @@ impl IceObject for ServerAuthenticatorPrx {
         let mut read_bytes: i32 = 0;
         String::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_ids(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ids(&self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_ids"), 1, &Encapsulation::empty(), None)
@@ -2136,7 +2142,7 @@ impl IceObject for ServerAuthenticatorPrx {
 #[async_trait]
 impl ServerAuthenticator for ServerAuthenticatorPrx {
     async fn authenticate(
-        &mut self,
+        &self,
         name: &String,
         pw: &String,
         certificates: &CertificateList,
@@ -2176,7 +2182,7 @@ impl ServerAuthenticator for ServerAuthenticatorPrx {
         )
     }
     async fn get_info(
-        &mut self,
+        &self,
         id: i32,
         info: &mut UserInfoMap,
         context: Option<HashMap<String, String>>,
@@ -2203,7 +2209,7 @@ impl ServerAuthenticator for ServerAuthenticatorPrx {
         )
     }
     async fn name_to_id(
-        &mut self,
+        &self,
         name: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
@@ -2225,7 +2231,7 @@ impl ServerAuthenticator for ServerAuthenticatorPrx {
         )
     }
     async fn id_to_name(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -2247,7 +2253,7 @@ impl ServerAuthenticator for ServerAuthenticatorPrx {
         )
     }
     async fn id_to_texture(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<Texture, Box<dyn std::error::Error + Send + Sync>> {
@@ -2308,34 +2314,34 @@ impl ice_rs::encoding::FromBytes for ServerAuthenticatorPrx {
 #[async_trait]
 pub trait ServerUpdatingAuthenticator: IceObject {
     async fn register_user(
-        &mut self,
+        &self,
         info: &UserInfoMap,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn unregister_user(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_registered_users(
-        &mut self,
+        &self,
         filter: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<NameMap, Box<dyn std::error::Error + Send + Sync>>;
     async fn set_info(
-        &mut self,
+        &self,
         id: i32,
         info: &UserInfoMap,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn set_texture(
-        &mut self,
+        &self,
         id: i32,
         tex: &Texture,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn authenticate(
-        &mut self,
+        &self,
         name: &String,
         pw: &String,
         certificates: &CertificateList,
@@ -2346,23 +2352,23 @@ pub trait ServerUpdatingAuthenticator: IceObject {
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_info(
-        &mut self,
+        &self,
         id: i32,
         info: &mut UserInfoMap,
         context: Option<HashMap<String, String>>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
     async fn name_to_id(
-        &mut self,
+        &self,
         name: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn id_to_name(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
     async fn id_to_texture(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<Texture, Box<dyn std::error::Error + Send + Sync>>;
@@ -2743,18 +2749,20 @@ impl IceObjectServer for ServerUpdatingAuthenticatorServer {
         }
     }
 }
+#[doc = r" `Clone` дешёвый: внутри `Proxy`, а соединение живёт за `Arc`."]
+#[derive(Clone)]
 pub struct ServerUpdatingAuthenticatorPrx {
     pub proxy: Proxy,
 }
 #[async_trait]
 impl IceObject for ServerUpdatingAuthenticatorPrx {
-    async fn ice_ping(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ping(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         self.proxy
             .dispatch::<ProtocolError>(&String::from("ice_ping"), 1, &Encapsulation::empty(), None)
             .await?;
         Ok(())
     }
-    async fn ice_is_a(&mut self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_is_a(&self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(
@@ -2769,7 +2777,7 @@ impl IceObject for ServerUpdatingAuthenticatorPrx {
         let mut read_bytes: i32 = 0;
         bool::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_id(&mut self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_id(&self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_id"), 1, &Encapsulation::empty(), None)
@@ -2777,7 +2785,7 @@ impl IceObject for ServerUpdatingAuthenticatorPrx {
         let mut read_bytes: i32 = 0;
         String::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_ids(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ids(&self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_ids"), 1, &Encapsulation::empty(), None)
@@ -2789,7 +2797,7 @@ impl IceObject for ServerUpdatingAuthenticatorPrx {
 #[async_trait]
 impl ServerUpdatingAuthenticator for ServerUpdatingAuthenticatorPrx {
     async fn register_user(
-        &mut self,
+        &self,
         info: &UserInfoMap,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
@@ -2811,7 +2819,7 @@ impl ServerUpdatingAuthenticator for ServerUpdatingAuthenticatorPrx {
         )
     }
     async fn unregister_user(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
@@ -2833,7 +2841,7 @@ impl ServerUpdatingAuthenticator for ServerUpdatingAuthenticatorPrx {
         )
     }
     async fn get_registered_users(
-        &mut self,
+        &self,
         filter: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<NameMap, Box<dyn std::error::Error + Send + Sync>> {
@@ -2855,7 +2863,7 @@ impl ServerUpdatingAuthenticator for ServerUpdatingAuthenticatorPrx {
         )
     }
     async fn set_info(
-        &mut self,
+        &self,
         id: i32,
         info: &UserInfoMap,
         context: Option<HashMap<String, String>>,
@@ -2879,7 +2887,7 @@ impl ServerUpdatingAuthenticator for ServerUpdatingAuthenticatorPrx {
         )
     }
     async fn set_texture(
-        &mut self,
+        &self,
         id: i32,
         tex: &Texture,
         context: Option<HashMap<String, String>>,
@@ -2903,7 +2911,7 @@ impl ServerUpdatingAuthenticator for ServerUpdatingAuthenticatorPrx {
         )
     }
     async fn authenticate(
-        &mut self,
+        &self,
         name: &String,
         pw: &String,
         certificates: &CertificateList,
@@ -2943,7 +2951,7 @@ impl ServerUpdatingAuthenticator for ServerUpdatingAuthenticatorPrx {
         )
     }
     async fn get_info(
-        &mut self,
+        &self,
         id: i32,
         info: &mut UserInfoMap,
         context: Option<HashMap<String, String>>,
@@ -2970,7 +2978,7 @@ impl ServerUpdatingAuthenticator for ServerUpdatingAuthenticatorPrx {
         )
     }
     async fn name_to_id(
-        &mut self,
+        &self,
         name: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
@@ -2992,7 +3000,7 @@ impl ServerUpdatingAuthenticator for ServerUpdatingAuthenticatorPrx {
         )
     }
     async fn id_to_name(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -3014,7 +3022,7 @@ impl ServerUpdatingAuthenticator for ServerUpdatingAuthenticatorPrx {
         )
     }
     async fn id_to_texture(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<Texture, Box<dyn std::error::Error + Send + Sync>> {
@@ -3075,133 +3083,133 @@ impl ice_rs::encoding::FromBytes for ServerUpdatingAuthenticatorPrx {
 #[async_trait]
 pub trait Server: IceObject {
     async fn is_running(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
     async fn start(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn stop(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn delete(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn id(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn add_callback(
-        &mut self,
+        &self,
         cb: &ServerCallbackPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn remove_callback(
-        &mut self,
+        &self,
         cb: &ServerCallbackPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn set_authenticator(
-        &mut self,
+        &self,
         auth: &ServerAuthenticatorPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn get_conf(
-        &mut self,
+        &self,
         key: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_all_conf(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ConfigMap, Box<dyn std::error::Error + Send + Sync>>;
     async fn set_conf(
-        &mut self,
+        &self,
         key: &String,
         value: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn set_superuser_password(
-        &mut self,
+        &self,
         pw: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn get_log(
-        &mut self,
+        &self,
         first: i32,
         last: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<LogList, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_log_len(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_users(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<UserMap, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_channels(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ChannelMap, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_certificate_list(
-        &mut self,
+        &self,
         session: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<CertificateList, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_tree(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<Tree, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_bans(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<BanList, Box<dyn std::error::Error + Send + Sync>>;
     async fn set_bans(
-        &mut self,
+        &self,
         bans: &BanList,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn kick_user(
-        &mut self,
+        &self,
         session: i32,
         reason: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn get_state(
-        &mut self,
+        &self,
         session: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<User, Box<dyn std::error::Error + Send + Sync>>;
     async fn set_state(
-        &mut self,
+        &self,
         state: &User,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn send_message(
-        &mut self,
+        &self,
         session: i32,
         text: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn has_permission(
-        &mut self,
+        &self,
         session: i32,
         channelid: i32,
         perm: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
     async fn effective_permissions(
-        &mut self,
+        &self,
         session: i32,
         channelid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn add_context_callback(
-        &mut self,
+        &self,
         session: i32,
         action: &String,
         text: &String,
@@ -3210,40 +3218,40 @@ pub trait Server: IceObject {
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn remove_context_callback(
-        &mut self,
+        &self,
         cb: &ServerContextCallbackPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn get_channel_state(
-        &mut self,
+        &self,
         channelid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<Channel, Box<dyn std::error::Error + Send + Sync>>;
     async fn set_channel_state(
-        &mut self,
+        &self,
         state: &Channel,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn remove_channel(
-        &mut self,
+        &self,
         channelid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn add_channel(
-        &mut self,
+        &self,
         name: &String,
         parent: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn send_message_channel(
-        &mut self,
+        &self,
         channelid: i32,
         tree: bool,
         text: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn get_acl(
-        &mut self,
+        &self,
         channelid: i32,
         acls: &mut Acllist,
         groups: &mut GroupList,
@@ -3251,7 +3259,7 @@ pub trait Server: IceObject {
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn set_acl(
-        &mut self,
+        &self,
         channelid: i32,
         acls: &Acllist,
         groups: &GroupList,
@@ -3259,133 +3267,133 @@ pub trait Server: IceObject {
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn add_user_to_group(
-        &mut self,
+        &self,
         channelid: i32,
         session: i32,
         group: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn remove_user_from_group(
-        &mut self,
+        &self,
         channelid: i32,
         session: i32,
         group: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn redirect_whisper_group(
-        &mut self,
+        &self,
         session: i32,
         source: &String,
         target: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn get_user_names(
-        &mut self,
+        &self,
         ids: &IdList,
         context: Option<HashMap<String, String>>,
     ) -> Result<NameMap, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_user_ids(
-        &mut self,
+        &self,
         names: &NameList,
         context: Option<HashMap<String, String>>,
     ) -> Result<IdMap, Box<dyn std::error::Error + Send + Sync>>;
     async fn register_user(
-        &mut self,
+        &self,
         info: &UserInfoMap,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn unregister_user(
-        &mut self,
+        &self,
         userid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn update_registration(
-        &mut self,
+        &self,
         userid: i32,
         info: &UserInfoMap,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn get_registration(
-        &mut self,
+        &self,
         userid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<UserInfoMap, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_registered_users(
-        &mut self,
+        &self,
         filter: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<NameMap, Box<dyn std::error::Error + Send + Sync>>;
     async fn verify_password(
-        &mut self,
+        &self,
         name: &String,
         pw: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_texture(
-        &mut self,
+        &self,
         userid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<Texture, Box<dyn std::error::Error + Send + Sync>>;
     async fn set_texture(
-        &mut self,
+        &self,
         userid: i32,
         tex: &Texture,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn get_uptime(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn update_certificate(
-        &mut self,
+        &self,
         certificate: &String,
         private_key: &String,
         passphrase: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn start_listening(
-        &mut self,
+        &self,
         userid: i32,
         channelid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn stop_listening(
-        &mut self,
+        &self,
         userid: i32,
         channelid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn is_listening(
-        &mut self,
+        &self,
         userid: i32,
         channelid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_listening_channels(
-        &mut self,
+        &self,
         userid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<IntList, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_listening_users(
-        &mut self,
+        &self,
         channelid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<IntList, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_listener_volume_adjustment(
-        &mut self,
+        &self,
         channelid: i32,
         userid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<f32, Box<dyn std::error::Error + Send + Sync>>;
     async fn set_listener_volume_adjustment(
-        &mut self,
+        &self,
         channelid: i32,
         userid: i32,
         volume_adjustment: f32,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn send_welcome_message(
-        &mut self,
+        &self,
         receiver_user_i_ds: &IdList,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -5098,18 +5106,20 @@ impl IceObjectServer for ServerServer {
         }
     }
 }
+#[doc = r" `Clone` дешёвый: внутри `Proxy`, а соединение живёт за `Arc`."]
+#[derive(Clone)]
 pub struct ServerPrx {
     pub proxy: Proxy,
 }
 #[async_trait]
 impl IceObject for ServerPrx {
-    async fn ice_ping(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ping(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         self.proxy
             .dispatch::<ProtocolError>(&String::from("ice_ping"), 1, &Encapsulation::empty(), None)
             .await?;
         Ok(())
     }
-    async fn ice_is_a(&mut self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_is_a(&self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(
@@ -5122,7 +5132,7 @@ impl IceObject for ServerPrx {
         let mut read_bytes: i32 = 0;
         bool::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_id(&mut self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_id(&self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_id"), 1, &Encapsulation::empty(), None)
@@ -5130,7 +5140,7 @@ impl IceObject for ServerPrx {
         let mut read_bytes: i32 = 0;
         String::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_ids(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ids(&self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_ids"), 1, &Encapsulation::empty(), None)
@@ -5142,7 +5152,7 @@ impl IceObject for ServerPrx {
 #[async_trait]
 impl Server for ServerPrx {
     async fn is_running(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5162,7 +5172,7 @@ impl Server for ServerPrx {
         )
     }
     async fn start(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5177,7 +5187,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn stop(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5192,7 +5202,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn delete(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5207,7 +5217,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn id(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5227,7 +5237,7 @@ impl Server for ServerPrx {
         )
     }
     async fn add_callback(
-        &mut self,
+        &self,
         cb: &ServerCallbackPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -5244,7 +5254,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn remove_callback(
-        &mut self,
+        &self,
         cb: &ServerCallbackPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -5261,7 +5271,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn set_authenticator(
-        &mut self,
+        &self,
         auth: &ServerAuthenticatorPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -5278,7 +5288,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn get_conf(
-        &mut self,
+        &self,
         key: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
@@ -5300,7 +5310,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_all_conf(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ConfigMap, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5320,7 +5330,7 @@ impl Server for ServerPrx {
         )
     }
     async fn set_conf(
-        &mut self,
+        &self,
         key: &String,
         value: &String,
         context: Option<HashMap<String, String>>,
@@ -5339,7 +5349,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn set_superuser_password(
-        &mut self,
+        &self,
         pw: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -5356,7 +5366,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn get_log(
-        &mut self,
+        &self,
         first: i32,
         last: i32,
         context: Option<HashMap<String, String>>,
@@ -5380,7 +5390,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_log_len(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5400,7 +5410,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_users(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<UserMap, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5420,7 +5430,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_channels(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ChannelMap, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5440,7 +5450,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_certificate_list(
-        &mut self,
+        &self,
         session: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<CertificateList, Box<dyn std::error::Error + Send + Sync>> {
@@ -5462,7 +5472,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_tree(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<Tree, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5482,7 +5492,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_bans(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<BanList, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -5502,7 +5512,7 @@ impl Server for ServerPrx {
         )
     }
     async fn set_bans(
-        &mut self,
+        &self,
         bans: &BanList,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -5519,7 +5529,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn kick_user(
-        &mut self,
+        &self,
         session: i32,
         reason: &String,
         context: Option<HashMap<String, String>>,
@@ -5538,7 +5548,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn get_state(
-        &mut self,
+        &self,
         session: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<User, Box<dyn std::error::Error + Send + Sync>> {
@@ -5560,7 +5570,7 @@ impl Server for ServerPrx {
         )
     }
     async fn set_state(
-        &mut self,
+        &self,
         state: &User,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -5577,7 +5587,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn send_message(
-        &mut self,
+        &self,
         session: i32,
         text: &String,
         context: Option<HashMap<String, String>>,
@@ -5596,7 +5606,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn has_permission(
-        &mut self,
+        &self,
         session: i32,
         channelid: i32,
         perm: i32,
@@ -5622,7 +5632,7 @@ impl Server for ServerPrx {
         )
     }
     async fn effective_permissions(
-        &mut self,
+        &self,
         session: i32,
         channelid: i32,
         context: Option<HashMap<String, String>>,
@@ -5646,7 +5656,7 @@ impl Server for ServerPrx {
         )
     }
     async fn add_context_callback(
-        &mut self,
+        &self,
         session: i32,
         action: &String,
         text: &String,
@@ -5671,7 +5681,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn remove_context_callback(
-        &mut self,
+        &self,
         cb: &ServerContextCallbackPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -5688,7 +5698,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn get_channel_state(
-        &mut self,
+        &self,
         channelid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<Channel, Box<dyn std::error::Error + Send + Sync>> {
@@ -5710,7 +5720,7 @@ impl Server for ServerPrx {
         )
     }
     async fn set_channel_state(
-        &mut self,
+        &self,
         state: &Channel,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -5727,7 +5737,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn remove_channel(
-        &mut self,
+        &self,
         channelid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -5744,7 +5754,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn add_channel(
-        &mut self,
+        &self,
         name: &String,
         parent: i32,
         context: Option<HashMap<String, String>>,
@@ -5768,7 +5778,7 @@ impl Server for ServerPrx {
         )
     }
     async fn send_message_channel(
-        &mut self,
+        &self,
         channelid: i32,
         tree: bool,
         text: &String,
@@ -5789,7 +5799,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn get_acl(
-        &mut self,
+        &self,
         channelid: i32,
         acls: &mut Acllist,
         groups: &mut GroupList,
@@ -5823,7 +5833,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn set_acl(
-        &mut self,
+        &self,
         channelid: i32,
         acls: &Acllist,
         groups: &GroupList,
@@ -5846,7 +5856,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn add_user_to_group(
-        &mut self,
+        &self,
         channelid: i32,
         session: i32,
         group: &String,
@@ -5867,7 +5877,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn remove_user_from_group(
-        &mut self,
+        &self,
         channelid: i32,
         session: i32,
         group: &String,
@@ -5888,7 +5898,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn redirect_whisper_group(
-        &mut self,
+        &self,
         session: i32,
         source: &String,
         target: &String,
@@ -5909,7 +5919,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn get_user_names(
-        &mut self,
+        &self,
         ids: &IdList,
         context: Option<HashMap<String, String>>,
     ) -> Result<NameMap, Box<dyn std::error::Error + Send + Sync>> {
@@ -5931,7 +5941,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_user_ids(
-        &mut self,
+        &self,
         names: &NameList,
         context: Option<HashMap<String, String>>,
     ) -> Result<IdMap, Box<dyn std::error::Error + Send + Sync>> {
@@ -5953,7 +5963,7 @@ impl Server for ServerPrx {
         )
     }
     async fn register_user(
-        &mut self,
+        &self,
         info: &UserInfoMap,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
@@ -5975,7 +5985,7 @@ impl Server for ServerPrx {
         )
     }
     async fn unregister_user(
-        &mut self,
+        &self,
         userid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -5992,7 +6002,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn update_registration(
-        &mut self,
+        &self,
         userid: i32,
         info: &UserInfoMap,
         context: Option<HashMap<String, String>>,
@@ -6011,7 +6021,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn get_registration(
-        &mut self,
+        &self,
         userid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<UserInfoMap, Box<dyn std::error::Error + Send + Sync>> {
@@ -6033,7 +6043,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_registered_users(
-        &mut self,
+        &self,
         filter: &String,
         context: Option<HashMap<String, String>>,
     ) -> Result<NameMap, Box<dyn std::error::Error + Send + Sync>> {
@@ -6055,7 +6065,7 @@ impl Server for ServerPrx {
         )
     }
     async fn verify_password(
-        &mut self,
+        &self,
         name: &String,
         pw: &String,
         context: Option<HashMap<String, String>>,
@@ -6079,7 +6089,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_texture(
-        &mut self,
+        &self,
         userid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<Texture, Box<dyn std::error::Error + Send + Sync>> {
@@ -6101,7 +6111,7 @@ impl Server for ServerPrx {
         )
     }
     async fn set_texture(
-        &mut self,
+        &self,
         userid: i32,
         tex: &Texture,
         context: Option<HashMap<String, String>>,
@@ -6120,7 +6130,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn get_uptime(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -6140,7 +6150,7 @@ impl Server for ServerPrx {
         )
     }
     async fn update_certificate(
-        &mut self,
+        &self,
         certificate: &String,
         private_key: &String,
         passphrase: &String,
@@ -6161,7 +6171,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn start_listening(
-        &mut self,
+        &self,
         userid: i32,
         channelid: i32,
         context: Option<HashMap<String, String>>,
@@ -6180,7 +6190,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn stop_listening(
-        &mut self,
+        &self,
         userid: i32,
         channelid: i32,
         context: Option<HashMap<String, String>>,
@@ -6199,7 +6209,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn is_listening(
-        &mut self,
+        &self,
         userid: i32,
         channelid: i32,
         context: Option<HashMap<String, String>>,
@@ -6223,7 +6233,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_listening_channels(
-        &mut self,
+        &self,
         userid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<IntList, Box<dyn std::error::Error + Send + Sync>> {
@@ -6245,7 +6255,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_listening_users(
-        &mut self,
+        &self,
         channelid: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<IntList, Box<dyn std::error::Error + Send + Sync>> {
@@ -6267,7 +6277,7 @@ impl Server for ServerPrx {
         )
     }
     async fn get_listener_volume_adjustment(
-        &mut self,
+        &self,
         channelid: i32,
         userid: i32,
         context: Option<HashMap<String, String>>,
@@ -6291,7 +6301,7 @@ impl Server for ServerPrx {
         )
     }
     async fn set_listener_volume_adjustment(
-        &mut self,
+        &self,
         channelid: i32,
         userid: i32,
         volume_adjustment: f32,
@@ -6312,7 +6322,7 @@ impl Server for ServerPrx {
         Ok(())
     }
     async fn send_welcome_message(
-        &mut self,
+        &self,
         receiver_user_i_ds: &IdList,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -6368,12 +6378,12 @@ impl ice_rs::encoding::FromBytes for ServerPrx {
 #[async_trait]
 pub trait MetaCallback: IceObject {
     async fn started(
-        &mut self,
+        &self,
         srv: &ServerPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn stopped(
-        &mut self,
+        &self,
         srv: &ServerPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -6492,18 +6502,20 @@ impl IceObjectServer for MetaCallbackServer {
         }
     }
 }
+#[doc = r" `Clone` дешёвый: внутри `Proxy`, а соединение живёт за `Arc`."]
+#[derive(Clone)]
 pub struct MetaCallbackPrx {
     pub proxy: Proxy,
 }
 #[async_trait]
 impl IceObject for MetaCallbackPrx {
-    async fn ice_ping(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ping(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         self.proxy
             .dispatch::<ProtocolError>(&String::from("ice_ping"), 1, &Encapsulation::empty(), None)
             .await?;
         Ok(())
     }
-    async fn ice_is_a(&mut self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_is_a(&self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(
@@ -6516,7 +6528,7 @@ impl IceObject for MetaCallbackPrx {
         let mut read_bytes: i32 = 0;
         bool::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_id(&mut self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_id(&self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_id"), 1, &Encapsulation::empty(), None)
@@ -6524,7 +6536,7 @@ impl IceObject for MetaCallbackPrx {
         let mut read_bytes: i32 = 0;
         String::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_ids(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ids(&self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_ids"), 1, &Encapsulation::empty(), None)
@@ -6536,7 +6548,7 @@ impl IceObject for MetaCallbackPrx {
 #[async_trait]
 impl MetaCallback for MetaCallbackPrx {
     async fn started(
-        &mut self,
+        &self,
         srv: &ServerPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -6553,7 +6565,7 @@ impl MetaCallback for MetaCallbackPrx {
         Ok(())
     }
     async fn stopped(
-        &mut self,
+        &self,
         srv: &ServerPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -6609,28 +6621,28 @@ impl ice_rs::encoding::FromBytes for MetaCallbackPrx {
 #[async_trait]
 pub trait Meta: IceObject {
     async fn get_server(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<ServerPrx, Box<dyn std::error::Error + Send + Sync>>;
     async fn new_server(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ServerPrx, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_booted_servers(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ServerList, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_all_servers(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ServerList, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_default_conf(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ConfigMap, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_version(
-        &mut self,
+        &self,
         major: &mut i32,
         minor: &mut i32,
         patch: &mut i32,
@@ -6638,33 +6650,33 @@ pub trait Meta: IceObject {
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn add_callback(
-        &mut self,
+        &self,
         cb: &MetaCallbackPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn remove_callback(
-        &mut self,
+        &self,
         cb: &MetaCallbackPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     async fn get_uptime(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_slice(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_slice_checksums(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<super::ice::SliceChecksumDict, Box<dyn std::error::Error + Send + Sync>>;
     async fn get_assumed_database_state(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<Dbstate, Box<dyn std::error::Error + Send + Sync>>;
     async fn set_assumed_database_state(
-        &mut self,
+        &self,
         state: &Dbstate,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
@@ -7023,18 +7035,20 @@ impl IceObjectServer for MetaServer {
         }
     }
 }
+#[doc = r" `Clone` дешёвый: внутри `Proxy`, а соединение живёт за `Arc`."]
+#[derive(Clone)]
 pub struct MetaPrx {
     pub proxy: Proxy,
 }
 #[async_trait]
 impl IceObject for MetaPrx {
-    async fn ice_ping(&mut self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ping(&self) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
         self.proxy
             .dispatch::<ProtocolError>(&String::from("ice_ping"), 1, &Encapsulation::empty(), None)
             .await?;
         Ok(())
     }
-    async fn ice_is_a(&mut self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_is_a(&self) -> Result<bool, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(
@@ -7047,7 +7061,7 @@ impl IceObject for MetaPrx {
         let mut read_bytes: i32 = 0;
         bool::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_id(&mut self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_id(&self) -> Result<String, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_id"), 1, &Encapsulation::empty(), None)
@@ -7055,7 +7069,7 @@ impl IceObject for MetaPrx {
         let mut read_bytes: i32 = 0;
         String::from_bytes(&reply.body.data, &mut read_bytes)
     }
-    async fn ice_ids(&mut self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
+    async fn ice_ids(&self) -> Result<Vec<String>, Box<dyn std::error::Error + Sync + Send>> {
         let reply = self
             .proxy
             .dispatch::<ProtocolError>(&String::from("ice_ids"), 1, &Encapsulation::empty(), None)
@@ -7067,7 +7081,7 @@ impl IceObject for MetaPrx {
 #[async_trait]
 impl Meta for MetaPrx {
     async fn get_server(
-        &mut self,
+        &self,
         id: i32,
         context: Option<HashMap<String, String>>,
     ) -> Result<ServerPrx, Box<dyn std::error::Error + Send + Sync>> {
@@ -7087,19 +7101,11 @@ impl Meta for MetaPrx {
             &reply.body.data[read_bytes as usize..reply.body.data.len()],
             &mut read_bytes,
         )?;
-        let proxy_string = format!(
-            "{}:{} -h {} -p {}",
-            proxy_data.identity_string(),
-            if proxy_data.secure { "ssl" } else { "tcp" },
-            self.proxy.host,
-            self.proxy.port
-        );
-        let mut comm = ice_rs::communicator::Communicator::new().await?;
-        let proxy = comm.string_to_proxy(&proxy_string).await?;
+        let proxy = self.proxy.with_ident(&proxy_data.identity_string());
         ServerPrx::unchecked_cast(proxy).await
     }
     async fn new_server(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ServerPrx, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -7117,19 +7123,11 @@ impl Meta for MetaPrx {
             &reply.body.data[read_bytes as usize..reply.body.data.len()],
             &mut read_bytes,
         )?;
-        let proxy_string = format!(
-            "{}:{} -h {} -p {}",
-            proxy_data.identity_string(),
-            if proxy_data.secure { "ssl" } else { "tcp" },
-            self.proxy.host,
-            self.proxy.port
-        );
-        let mut comm = ice_rs::communicator::Communicator::new().await?;
-        let proxy = comm.string_to_proxy(&proxy_string).await?;
+        let proxy = self.proxy.with_ident(&proxy_data.identity_string());
         ServerPrx::unchecked_cast(proxy).await
     }
     async fn get_booted_servers(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ServerList, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -7149,7 +7147,7 @@ impl Meta for MetaPrx {
         )
     }
     async fn get_all_servers(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ServerList, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -7169,7 +7167,7 @@ impl Meta for MetaPrx {
         )
     }
     async fn get_default_conf(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<ConfigMap, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -7189,7 +7187,7 @@ impl Meta for MetaPrx {
         )
     }
     async fn get_version(
-        &mut self,
+        &self,
         major: &mut i32,
         minor: &mut i32,
         patch: &mut i32,
@@ -7226,7 +7224,7 @@ impl Meta for MetaPrx {
         Ok(())
     }
     async fn add_callback(
-        &mut self,
+        &self,
         cb: &MetaCallbackPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -7243,7 +7241,7 @@ impl Meta for MetaPrx {
         Ok(())
     }
     async fn remove_callback(
-        &mut self,
+        &self,
         cb: &MetaCallbackPrx,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -7260,7 +7258,7 @@ impl Meta for MetaPrx {
         Ok(())
     }
     async fn get_uptime(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -7280,7 +7278,7 @@ impl Meta for MetaPrx {
         )
     }
     async fn get_slice(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -7300,7 +7298,7 @@ impl Meta for MetaPrx {
         )
     }
     async fn get_slice_checksums(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<super::ice::SliceChecksumDict, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -7320,7 +7318,7 @@ impl Meta for MetaPrx {
         )
     }
     async fn get_assumed_database_state(
-        &mut self,
+        &self,
         context: Option<HashMap<String, String>>,
     ) -> Result<Dbstate, Box<dyn std::error::Error + Send + Sync>> {
         let bytes = Vec::new();
@@ -7340,7 +7338,7 @@ impl Meta for MetaPrx {
         )
     }
     async fn set_assumed_database_state(
-        &mut self,
+        &self,
         state: &Dbstate,
         context: Option<HashMap<String, String>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

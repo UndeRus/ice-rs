@@ -1,21 +1,14 @@
-use std::collections::HashMap;
-
-
-use crate::{errors::ProtocolError, protocol::{Encapsulation, EndPointType, Identity, LocatorResult, RequestData}, proxy_parser::{DirectProxyData, IndirectProxyData}};
+use crate::{errors::ProtocolError, protocol::{Encapsulation, EndPointType, LocatorResult}, proxy_parser::{DirectProxyData, IndirectProxyData}};
 use crate::encoding::{ToBytes,FromBytes};
 use crate::proxy::Proxy;
 
 pub struct Locator {
     proxy: Proxy,
-    request_id: i32
 }
 
 impl Locator {
     pub fn from(proxy: Proxy) -> Locator {
-        Locator {
-            proxy: proxy,
-            request_id: 0
-        }
+        Locator { proxy }
     }
 
     pub async fn locate(&mut self, proxy_data: IndirectProxyData) -> Result<DirectProxyData, Box<dyn std::error::Error + Sync + Send>> {
@@ -47,39 +40,29 @@ impl Locator {
         }
     }
 
+    /// `Ice::Locator::findObjectById`.
+    ///
+    /// Раньше запрос собирался здесь вручную, со своим счётчиком request_id.
+    /// Теперь id выдаёт соединение — иначе несколько прокси на одном сокете
+    /// пересекались бы по номерам.
     pub async fn find_object_by_id(&mut self, req: &str) -> Result<LocatorResult, Box<dyn std::error::Error + Sync + Send>> {
-        self.request_id = self.request_id + 1;
         let mut bytes = req.to_bytes()?;
         bytes.push(0);
-        let req_data = RequestData {
-            request_id: self.request_id,
-            id: Identity::new(&self.proxy.ident),
-            facet: vec![],
-            operation: String::from("findObjectById"),
-            mode: 1,
-            context: HashMap::new(),
-            params: Encapsulation::from(bytes)
-        };
-        let reply = self.proxy.make_request::<ProtocolError>(&req_data).await?;
-
+        let reply = self
+            .proxy
+            .dispatch::<ProtocolError>("findObjectById", 1, &Encapsulation::from(bytes), None)
+            .await?;
         let mut read = 0;
         LocatorResult::from_bytes(&reply.body.data[read as usize..reply.body.data.len()], &mut read)
     }
 
+    /// `Ice::Locator::findAdapterById`.
     pub async fn find_adapter_by_id(&mut self, req: &str) -> Result<LocatorResult, Box<dyn std::error::Error + Sync + Send>> {
-        self.request_id = self.request_id + 1;
         let bytes = req.to_bytes()?;
-        let req_data = RequestData {
-            request_id: self.request_id,
-            id: Identity::new(&self.proxy.ident),
-            facet: vec![],
-            operation: String::from("findAdapterById"),
-            mode: 1,
-            context: HashMap::new(),
-            params: Encapsulation::from(bytes)
-        };
-        let reply = self.proxy.make_request::<ProtocolError>(&req_data).await?;
-
+        let reply = self
+            .proxy
+            .dispatch::<ProtocolError>("findAdapterById", 1, &Encapsulation::from(bytes), None)
+            .await?;
         let mut read = 0;
         LocatorResult::from_bytes(&reply.body.data[read as usize..reply.body.data.len()], &mut read)
     }

@@ -1,38 +1,32 @@
 use std::collections::HashMap;
 
-use crate::{errors::ProtocolError, locator::Locator, properties::Properties, protocol::EndPointType, proxy::Proxy, proxy_parser::{DirectProxyData, ProxyStringType, parse_proxy_string}, ssl::SslTransport, tcp::TcpTransport};
+use crate::{errors::ProtocolError, locator::Locator, properties::Properties, protocol::EndPointType, proxy::{Proxy, Target}, proxy_parser::{DirectProxyData, ProxyStringType, parse_proxy_string}};
 
 pub struct ProxyFactory {
     locator: Option<Locator>
 }
 
 impl ProxyFactory {
-    pub async fn create_proxy(proxy_data: DirectProxyData, properties: &Properties, context: Option<HashMap<String, String>>) -> Result<Proxy, Box<dyn std::error::Error + Sync + Send>> {
-        let mut proxy = match proxy_data.endpoint {            
-            EndPointType::TCP(endpoint) => {
-                Proxy::new(
-                    Box::new(TcpTransport::new(&format!("{}:{}", endpoint.host, endpoint.port)).await?),
-                    &proxy_data.ident,
-                    &endpoint.host,
-                    endpoint.port,
-                    context
-                )
-            }
-            EndPointType::SSL(endpoint) => {
-                Proxy::new(
-                    Box::new(SslTransport::new(&format!("{}:{}", endpoint.host, endpoint.port), properties).await?),
-                    &proxy_data.ident,
-                    &endpoint.host,
-                    endpoint.port,
-                    context
-                )
-            }
-            _ => return Err(Box::new(ProtocolError::new(&format!("Error creating proxy"))))
+    /// Собирает прокси. Соединение открывается лениво, при первом вызове,
+    /// поэтому `properties` здесь больше не нужны — их читает сам прокси в
+    /// момент дозвона.
+    pub async fn create_proxy(proxy_data: DirectProxyData, _properties: &Properties, context: Option<HashMap<String, String>>) -> Result<Proxy, Box<dyn std::error::Error + Sync + Send>> {
+        let target = match proxy_data.endpoint {
+            EndPointType::TCP(endpoint) => Target {
+                ident: proxy_data.ident,
+                host: endpoint.host,
+                port: endpoint.port,
+                secure: false,
+            },
+            EndPointType::SSL(endpoint) => Target {
+                ident: proxy_data.ident,
+                host: endpoint.host,
+                port: endpoint.port,
+                secure: true,
+            },
+            _ => return Err(Box::new(ProtocolError::new("Error creating proxy")))
         };
-
-        proxy.await_validate_connection_message().await?;
-
-        Ok(proxy)
+        Ok(Proxy::unresolved(target, context))
     }
 
     pub async fn new(properties: &Properties) -> Result<ProxyFactory, Box<dyn std::error::Error + Sync + Send>> {

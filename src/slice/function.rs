@@ -34,11 +34,14 @@ impl Function {
         self.arguments.push(arg);
     }
 
-    pub fn generate_decl(&self) -> Result<TokenStream, Box<dyn std::error::Error>> {       
+    pub fn generate_decl(&self) -> Result<TokenStream, Box<dyn std::error::Error>> {
         let id_token = &self.id;
         let return_token = self.return_type.token();
+        // `&self`, а не `&mut self`: прокси разделяемый, и несколько вызовов
+        // могут идти по одному соединению одновременно. Раньше `&mut self`
+        // навязывал один запрос в полёте на уровне borrow checker'а.
         let mut arg_tokens = vec![
-            quote! { &mut self }
+            quote! { &self }
         ];
         arg_tokens.extend(self.arguments.iter().map(|arg| arg.token()).collect::<Vec<_>>());
         arg_tokens.push(quote! {
@@ -50,7 +53,10 @@ impl Function {
         })
     }
 
-    pub fn generate_server_decl(&self) -> Result<TokenStream, Box<dyn std::error::Error>> {       
+    /// Servant-трейт остаётся на `&mut self`: его реализуют пользователи, и
+    /// менять им сигнатуру ради внутренней конкурентности незачем —
+    /// сгенерированный `*Server` уже держит свой мьютекс.
+    pub fn generate_server_decl(&self) -> Result<TokenStream, Box<dyn std::error::Error>> {
         let id_token = &self.id;
         let return_token = self.return_type.token();
         let mut arg_tokens = vec![
@@ -71,7 +77,7 @@ impl Function {
         let id_token = &self.id;
         let return_token = self.return_type.token();
         let mut arg_tokens = vec![
-            quote! { &mut self }
+            quote! { &self }
         ];
         arg_tokens.extend(self.arguments.iter().map(|arg| arg.token()).collect::<Vec<_>>());
         arg_tokens.push(quote! {

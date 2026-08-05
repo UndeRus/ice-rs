@@ -39,7 +39,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 termion::event::Key::Char('3') => {
                     let mut context = std::collections::HashMap::new();
                     context.insert(String::from("type"), String::from("Per-Proxy"));
-                    let proxy2 = context_prx.proxy.ice_context(context).await?;
+                    // `with_context` синхронный и переиспользует соединение;
+                    // прежний `ice_context` открывал новое только чтобы
+                    // приложить контекст.
+                    let proxy2 = context_prx.proxy.with_context(context);
                     let mut context_prx2 = ContextPrx::unchecked_cast(proxy2).await?;
                     context_prx2.call(None).await?;
                 },

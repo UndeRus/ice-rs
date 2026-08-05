@@ -100,6 +100,7 @@ pub mod proxy;
 pub mod proxy_parser;
 pub mod proxy_factory;
 pub mod communicator;
+pub mod connection;
 pub mod iceobject;
 pub mod slice;
 pub mod initdata;
