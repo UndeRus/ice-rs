@@ -1,3 +1,18 @@
+[workspace]
+# Раньше `[workspace]` не было вообще, а каждое демо носило свой Cargo.lock —
+# из-за этого `cargo test` в корне собирал только сам ice-rs, и ни один тест
+# murmur-демо в CI не запускался.
+members = [
+    "derive",
+    "crates/murmur-slice",
+    "crates/mumble-ice",
+    "demos/ice/minimal",
+    "demos/ice/optional",
+    "demos/ice/context",
+    "demos/ice/murmur",
+    "demos/icegrid/simple",
+]
+
 [package]
 name = "ice-rs"
 version = "0.3.0"

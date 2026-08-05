@@ -1,36 +1,84 @@
-
-//! ## Quick Start ##
-//! This quick start guide will cover a client for the [ZeroC Ice Minimal Sample](https://github.com/zeroc-ice/ice-demos/tree/3.7/python/Ice/minimal). Create a binary application with `cargo new minimal-client` and add `ice-rs` to your `[build-dependencies]`and `[dependencies]`. Now add a `build.rs` file with the following content:
+//! ZeroC Ice для Rust: рантайм протокола Ice 1.1 и компилятор Slice.
 //!
-//! ```Rust
+//! # Что выбрать
+//!
+//! **Пишете бота для Mumble?** Берите крейт `mumble-ice` — человеческий API с
+//! типизированными идентификаторами, колбеками и аутентификатором. Этот крейт
+//! тогда нужен только как транспорт под ним.
+//!
+//! **Нужен generic Ice?** Тогда вам сюда. Учтите ограничения: поддержаны TCP и
+//! SSL, кодировка 1.1, twoway и oneway. Нет batch-запросов, сжатия, UDP,
+//! Glacier2, ACM/heartbeat, а из Slice не поддержаны вложенные генерики,
+//! `optional` в структурах, операции в классах и compact type-id у классов.
+//! Практически покрыто то, что использует `MumbleServer.ice`.
+//!
+//! # Клиент
+//!
+//! ```no_run
+//! use ice_rs::communicator::Communicator;
+//! # mod gen { pub mod demo {
+//! #   pub struct HelloPrx; impl HelloPrx {
+//! #     pub async fn checked_cast(_p: ice_rs::proxy::Proxy) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> { Ok(HelloPrx) }
+//! #     pub async fn say_hello(&mut self, _c: Option<std::collections::HashMap<String,String>>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> { Ok(()) }
+//! #   } } }
+//! use gen::demo::HelloPrx;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//!     let mut comm = Communicator::new().await?;
+//!     let proxy = comm.string_to_proxy("hello:tcp -h localhost -p 10000").await?;
+//!     let mut hello = HelloPrx::checked_cast(proxy).await?;
+//!     hello.say_hello(None).await
+//! }
+//! ```
+//!
+//! # Сервер
+//!
+//! Реализуете сгенерированный трейт `*I`, оборачиваете в `*Server` и кладёте в
+//! адаптер. `into_servant()` генерируется вместе с остальным кодом:
+//!
+//! ```no_run
+//! # use ice_rs::adapter::Adapter;
+//! # async fn f(servant: std::sync::Arc<dyn ice_rs::iceobject::Servant>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//! let mut adapter = Adapter::with_endpoint("hello", "tcp -h 127.0.0.1 -p 10000")?;
+//! adapter.add("hello", servant);
+//! // Если слушаете на 0.0.0.0, обязательно объявите достижимый адрес: пир звонит
+//! // на него сам, и wildcard в прокси ему не поможет.
+//! // adapter.advertise("bot.internal", 10000);
+//! let handle = adapter.serve().await?;   // не блокирует
+//! println!("слушаем на {}", handle.local_addr());
+//! handle.shutdown().await;
+//! # Ok(()) }
+//! ```
+//!
+//! Адаптер обслуживает соединения конкурентно (таск на соединение), ключует
+//! servant'ов по полной Ice-идентичности с facet'ом и отвечает корректными
+//! статусами Ice: 2/3/4 с телом `RequestFailedException`, 1 с type-id
+//! исключения, 5 при внутреннем сбое.
+//!
+//! # Кодогенерация
+//!
+//! Из `.ice` в Rust — через `build.rs` либо разово бинарём `slice2rs`. Разовая
+//! генерация с закоммиченным выводом предпочтительнее: потребителю не нужен
+//! `rustfmt` на `PATH`, а диффы биндингов видны в ревью (так сделан крейт
+//! `murmur-slice`).
+//!
+//! ```no_run
 //! use ice_rs::slice::parser;
 //! use std::path::Path;
 //!
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!   println!("cargo:rerun-if-changed=build.rs");
-//!   let ice_files = vec![
-//!       String::from("<path/to/Hello.ice>")
-//!   ];
-//!   let root_module = parser::parse_ice_files(&input, ".")?;
-//!   root_module.generate(Path::new("./src/gen"))
+//!     println!("cargo:rerun-if-changed=Hello.ice");
+//!     let ice_files = vec![String::from("Hello.ice")];
+//!     // Второй аргумент — каталог для `#include <...>`.
+//!     let root = parser::parse_ice_files(&ice_files, ".")?;
+//!     // Второй аргумент — префикс супермодуля для `use`-путей.
+//!     root.generate(Path::new("./src/gen"), "")
 //! }
 //! ```
 //!
-//! Now add the following to you `main.rs`:
-//! ```Rust
-//! use ice_rs::communicator::Communicator;
-//! 
-//! mod gen;
-//! use crate::gen::demo::{Hello,HelloPrx};
-//! 
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//!     let mut comm = Communicator::new().await?;
-//!     let proxy = comm.string_to_proxy("hello:default -h localhost -p 10000").await?;
-//!     let mut hello_prx = HelloPrx::checked_cast(proxy).await?;
-//! 
-//!     hello_prx.say_hello(None).await
-//! }
+//! Ошибка в `.ice` приходит с файлом, строкой и столбцом, а не паникой внутри
+//! build.rs.
 //! ```
 
 #[macro_use]

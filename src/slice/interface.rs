@@ -6,6 +6,13 @@ use quote::{__private::TokenStream, format_ident, quote};
 pub struct Interface {
     pub id: TokenStream,
     pub ice_id: String,
+    /// Slice-имя базового интерфейса из `extends`, если он есть.
+    ///
+    /// Раньше `extends` парсер молча выбрасывал (`Rule::extends => {}`), поэтому
+    /// `ServerUpdatingAuthenticator extends ServerAuthenticator` генерировался
+    /// без пяти унаследованных операций: Murmur звал `authenticate`, а диспатчер
+    /// отвечал «операции нет», и `checkedCast` к базовому типу тоже проваливался.
+    pub extends: Option<String>,
     pub functions: Vec<Function>
 }
 
@@ -14,6 +21,7 @@ impl Interface {
         Interface {
             id: TokenStream::new(),
             ice_id: String::from(""),
+            extends: None,
             functions: Vec::new()
         }
     }
@@ -22,9 +30,20 @@ impl Interface {
         self.functions.push(function);
     }
 
-    pub fn generate(&self, mod_path: &str) -> Result<TokenStream, Box<dyn std::error::Error>> {
+    /// Генерирует код интерфейса.
+    ///
+    /// `functions` — уже сплющенный список операций (свои плюс унаследованные),
+    /// `type_ids` — цепочка Slice type-id от самого производного к
+    /// `::Ice::Object`. Оба готовит `Module::resolve_interface`, потому что база
+    /// ищется среди соседей по модулю, а самому интерфейсу они не видны.
+    pub fn generate(
+        &self,
+        mod_path: &str,
+        functions: &[Function],
+        type_ids: &[String],
+    ) -> Result<TokenStream, Box<dyn std::error::Error>> {
         let mut decl_tokens = TokenStream::new();
-        for function in &self.functions {
+        for function in functions {
             let token = function.generate_decl()?;
             decl_tokens = quote! {
                 #decl_tokens
@@ -32,7 +51,7 @@ impl Interface {
             };
         }
         let mut impl_tokens = TokenStream::new();
-        for function in &self.functions {
+        for function in functions {
             let token = function.generate_impl()?;
             impl_tokens = quote! {
                 #impl_tokens
@@ -40,7 +59,7 @@ impl Interface {
             };
         }
         let mut server_decl_tokens = TokenStream::new();
-        for function in &self.functions {
+        for function in functions {
             let token = function.generate_server_decl()?;
             server_decl_tokens = quote! {
                 #server_decl_tokens
@@ -48,7 +67,7 @@ impl Interface {
             };
         }
         let mut server_handler_tokens = TokenStream::new();
-        for function in &self.functions {
+        for function in functions {
             let token = function.generate_server_handler()?;
             server_handler_tokens = quote! {
                 #server_handler_tokens
@@ -84,10 +103,25 @@ impl Interface {
                     }
                 }
 
+                /// Отвечает по всей цепочке наследования, а не только по
+                /// собственному type-id: иначе `checkedCast` к базовому
+                /// интерфейсу со стороны пира проваливается.
                 async fn ice_is_a(&self, param: &str) -> bool {
-                    param == #type_id_token
+                    Self::ice_type_ids().iter().any(|t| t == param)
                 }
-                // TODO: ice_ids etc...
+
+                /// Slice type-id'ы объекта, от самого производного к
+                /// `::Ice::Object`.
+                #[allow(dead_code)]
+                pub fn ice_type_ids() -> Vec<String> {
+                    vec![#(String::from(#type_ids)),*]
+                }
+
+                /// Оборачивает в `Servant`, пригодный для регистрации в адаптере.
+                #[allow(dead_code)]
+                pub fn into_servant(self) -> std::sync::Arc<dyn ice_rs::iceobject::Servant> {
+                    ice_rs::adapter::LegacyServant::new(Box::new(self), Self::ice_type_ids())
+                }
             }
 
             #[async_trait]
@@ -107,13 +141,7 @@ impl Interface {
                         "ice_ids" => Ok(ReplyData {
                             request_id: request.request_id,
                             status: 0,
-                            body: Encapsulation::from(
-                                vec![
-                                    String::from(#type_id_token),
-                                    String::from("::Ice::Object"),
-                                ]
-                                .to_bytes()?,
-                            ),
+                            body: Encapsulation::from(Self::ice_type_ids().to_bytes()?),
                         }),
                         "ice_isA" => {
                             let buf = ice_rs::protocol::peel_slice_param_payload(&request.params.data);

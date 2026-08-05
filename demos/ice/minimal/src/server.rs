@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let hello_server = HelloServer::new(Box::new(HelloImpl{}));
 
-    adapter.add("hello", Box::new(hello_server));
+    adapter.add("hello", hello_server.into_servant());
     adapter.activate().await?;
     
     Ok(())

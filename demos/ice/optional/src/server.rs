@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let server = ContactDBServer::new(Box::new(ContactDBImpl{data: HashMap::new()}));
 
-    adapter.add("contactdb", Box::new(server));
+    adapter.add("contactdb", server.into_servant());
     adapter.activate().await?;
 
     // comm.wait_for_shutdown().await?;

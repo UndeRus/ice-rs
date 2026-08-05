@@ -8,14 +8,18 @@ indirect_proxy = { ident ~ adapter? }
 keyword_at = { "@" }
 ident = @{ (!":" ~ !keyword_at ~ ANY)* }
 adapter = { keyword_at ~ ident }
-hostname = @{ (ASCII_ALPHA | "-")* }
+// DNS-имя: метки из букв/цифр/дефисов, разделённые точками. Раньше правило было
+// `(ASCII_ALPHA | "-")*`, то есть отвергало и точки, и цифры — `mumble.example.com`
+// и `host1` не парсились вообще, работали только односложные вроде `localhost`.
+hostname = @{ (ASCII_ALPHANUMERIC | "-")+ ~ ("." ~ (ASCII_ALPHANUMERIC | "-")+)* }
 ip = @{
 	ASCII_DIGIT{1,3} ~ "." ~
     ASCII_DIGIT{1,3} ~ "." ~
     ASCII_DIGIT{1,3} ~ "." ~
     ASCII_DIGIT{1,3}
 }
-port = { ASCII_DIGIT{2,5} }
+// Одноцифровые порты — валидный ввод; диапазон проверяется в parse_endpoint.
+port = { ASCII_DIGIT{1,5} }
 
 endpoint = { endpoint_protocol ~ WHITESPACE* ~ (endpoint_host | endpoint_port) ~ (WHITESPACE* ~ (endpoint_host | endpoint_port))* }
 endpoint_protocol = { "default" | "tcp" | "ssl" }

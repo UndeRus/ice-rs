@@ -1,0 +1,20 @@
+[package]
+name = "mumble-ice"
+version = "0.1.0"
+edition = "2018"
+description = "Человеческий API к Murmur (Mumble server) через ZeroC Ice"
+license = "GPL-2.0"
+readme = "README.md"
+publish = false
+
+[dependencies]
+ice-rs = { path = "../.." }
+murmur-slice = { path = "../murmur-slice" }
+async-trait = "0.1"
+bitflags = "1.3"
+tokio = { version = "1.1", features = ["sync", "time", "rt", "net", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1.1", features = ["full"] }
+async-trait = "0.1"
+murmur-slice = { path = "../murmur-slice" }

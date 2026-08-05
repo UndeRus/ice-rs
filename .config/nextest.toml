@@ -1,0 +1,14 @@
+# Аутентификатор у виртуального сервера может быть только один, поэтому
+# E2E-тесты аутентификатора нельзя гонять параллельно: они перебивают друг другу
+# регистрацию. Группа с одним слотом делает это ограничением, а не устной
+# договорённостью.
+[test-groups]
+murmur-authenticator = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'test(=e2e_auth)'
+test-group = 'murmur-authenticator'
+
+[[profile.default.overrides]]
+filter = 'binary(e2e_auth)'
+test-group = 'murmur-authenticator'

@@ -1,6 +1,7 @@
 use crate::{errors::ParsingError, slice::enumeration::Enum};
 use crate::slice::structure::Struct;
 use crate::slice::interface::Interface;
+use crate::slice::function::Function;
 use crate::slice::exception::Exception;
 use crate::slice::class::Class;
 use std::{path::Path, process::Stdio};
@@ -8,7 +9,7 @@ use std::fs::File;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::cell::RefCell;
-use inflector::cases::{pascalcase, snakecase};
+use inflector::cases::{pascalcase, screamingsnakecase, snakecase};
 use quote::{__private::TokenStream, format_ident, quote};
 use std::io::Write;
 use super::types::IceType;
@@ -52,6 +53,12 @@ pub struct Module {
     interfaces: Vec<Interface>,
     typedefs: Vec<(String, IceType)>,
     classes: Vec<Class>,
+    /// `const`-объявления: (Slice-имя, тип, литерал как в .ice).
+    ///
+    /// Раньше парсер их выбрасывал (`Rule::const_def => {}`), поэтому все 18
+    /// констант прав и контекстов Murmur'а просто не существовали в
+    /// сгенерированном коде, и пользователи хардкодили `0x01`.
+    constants: Vec<(String, IceType, String)>,
     pub type_map: Rc<RefCell<BTreeMap<String, String>>>
 }
 
@@ -64,6 +71,7 @@ impl Module {
             enumerations: vec![],
             structs: vec![],
             interfaces: vec![],
+            constants: vec![],
             exceptions: vec![],
             typedefs: vec![],
             classes: vec![],
@@ -94,6 +102,45 @@ impl Module {
             }
             _ => {}
         }
+    }
+
+    /// Сплющивает наследование интерфейса: собирает полный список операций и
+    /// цепочку Slice type-id.
+    ///
+    /// Сплющивание, а не Rust-супертрейты: диспатчеру нужна одна плоская таблица
+    /// match-веток, `checked_cast` требует всю цепочку `ice_ids`, а супертрейты
+    /// вдобавок заставили бы пользователя разносить реализацию servant'а по
+    /// нескольким трейтам.
+    ///
+    /// Грамматика допускает в `extends` только `identifier`, поэтому база всегда
+    /// ищется в текущем модуле.
+    fn resolve_interface(&self, iface: &Interface) -> (Vec<Function>, Vec<String>) {
+        let mut type_ids = Vec::new();
+        let mut functions: Vec<Function> = Vec::new();
+        let mut seen_ops: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let mut visited: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+
+        let mut cur = Some(iface);
+        while let Some(i) = cur {
+            // Защита от цикла в наследовании: `A extends B extends A`.
+            if !visited.insert(i.ice_id.clone()) {
+                break;
+            }
+            type_ids.push(format!("{}::{}", self.full_name, i.ice_id));
+            for f in &i.functions {
+                // Производный интерфейс идёт первым, поэтому при совпадении имён
+                // побеждает его версия операции.
+                if seen_ops.insert(f.ice_id.clone()) {
+                    functions.push(f.clone());
+                }
+            }
+            cur = i
+                .extends
+                .as_ref()
+                .and_then(|base| self.interfaces.iter().find(|c| &c.ice_id == base));
+        }
+        type_ids.push(String::from("::Ice::Object"));
+        (functions, type_ids)
     }
 
     fn resolve_type_module(&self, name: &str) -> Option<String> {
@@ -171,6 +218,11 @@ impl Module {
 
     pub fn add_interface(&mut self, interface: Interface) {
         self.interfaces.push(interface);
+    }
+
+    pub fn add_constant(&mut self, ice_id: &str, r#type: IceType, value: &str) {
+        self.constants
+            .push((String::from(ice_id), r#type, String::from(value)));
     }
 
     pub fn add_exception(&mut self, exception: Exception) {
@@ -280,10 +332,21 @@ impl Module {
 
     pub fn generate(&self, dest: &Path, mod_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let mut tokens = vec![];
+        // Именно ВНУТРЕННИЕ атрибуты (`#![...]`), на весь модуль.
+        //
+        // Раньше здесь были внешние (`#[...]`), и `quote!` приклеивал их к
+        // первому попавшемуся следующему item'у — то есть к случайному `use`.
+        // Модуль они не покрывали, и каждый потребитель сгенерированного крейта
+        // видел warnings про мёртвый код и неиспользованные импорты. Комментарий
+        // `quote!` тоже выбрасывал, поэтому пометка «сгенерировано» идёт как
+        // doc-атрибут.
         tokens.push(quote! {
-            // This file has been generated.
-            #[allow(dead_code)]
-            #[allow(unused_imports)]
+            #![doc = " Этот файл сгенерирован из .ice — правки будут потеряны."]
+            #![allow(dead_code)]
+            #![allow(unused_imports)]
+            #![allow(unused_mut)]
+            #![allow(unused_variables)]
+            #![allow(clippy::all)]
         });
 
         // build up use statements
@@ -345,12 +408,33 @@ impl Module {
             });
         }
 
+        // Константы: Slice-имя переводится в SCREAMING_SNAKE_CASE по соглашению
+        // Rust (`PermissionWrite` → `PERMISSION_WRITE`), литерал берётся как есть
+        // — hex и десятичные записи Slice валидны и в Rust.
+        for (ice_id, var_type, value) in &self.constants {
+            let name = format_ident!("{}", screamingsnakecase::to_screaming_snake_case(ice_id));
+            let type_token = var_type.token();
+            let value_token: TokenStream = value.parse().map_err(|_| {
+                ParsingError::new(&format!(
+                    "Cannot render Slice constant {} = {} as a Rust literal",
+                    ice_id, value
+                ))
+            })?;
+            let doc = format!(" Slice: `const {} = {};`", ice_id, value);
+            tokens.push(quote! {
+                #[doc = #doc]
+                #[allow(dead_code)]
+                pub const #name: #type_token = #value_token;
+            });
+        }
+
         for exception in &self.exceptions {
-            tokens.push(exception.generate()?);
+            tokens.push(exception.generate(&self.full_name)?);
         }
 
         for interface in &self.interfaces {
-            tokens.push(interface.generate(&self.full_name)?);
+            let (functions, type_ids) = self.resolve_interface(interface);
+            tokens.push(interface.generate(&self.full_name, &functions, &type_ids)?);
         }
 
         let mod_token = quote! { #(#tokens)* };
@@ -360,6 +444,7 @@ impl Module {
         let mut child = Command::new("rustfmt")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .arg("--edition")
             .arg("2018")
             .spawn()?;
@@ -368,10 +453,31 @@ impl Module {
             stdin.write_all(mod_token.to_string().as_bytes())?;
         }    
         let output = child.wait_with_output()?;
+        // Код возврата rustfmt раньше не проверялся: при отказе `stdout` пуст, и
+        // на диск молча уезжал ПУСТОЙ mod.rs — ошибка всплывала потом как
+        // «нет такого типа» в чужом крейте.
+        if !output.status.success() {
+            return Err(Box::new(ParsingError::new(&format!(
+                "rustfmt failed for {} (status {:?}): {}",
+                mod_file.display(),
+                output.status.code(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))));
+        }
+        if output.stdout.is_empty() {
+            return Err(Box::new(ParsingError::new(&format!(
+                "rustfmt produced no output for {}; refusing to write an empty module",
+                mod_file.display()
+            ))));
+        }
         let mut file = File::create(mod_file)?;
         match file.write_all(&output.stdout) {
             Ok(_) => Ok(()),
-            Err(_) =>  Err(Box::new(ParsingError::new("Could not write file")))
+            Err(e) => Err(Box::new(ParsingError::new(&format!(
+                "Could not write {}: {}",
+                mod_file.display(),
+                e
+            )))),
         }
     }
 }

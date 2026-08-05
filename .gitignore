@@ -1,4 +1,11 @@
 **/target
 /demo_rs/src/gen
-**/demos/**/gen
 .vscode/
+
+# Демо (кроме murmur) генерируют код в build.rs. Биндинги Murmur, наоборот,
+# закоммичены в crates/murmur-slice — см. его README.
+**/demos/**/gen
+
+# Локальный Murmur для E2E: 26 МБ бинаря плюс БД и логи прогонов.
+# scripts/e2e.sh находит его здесь автоматически, но в репозиторий это не место.
+.mumble-server/

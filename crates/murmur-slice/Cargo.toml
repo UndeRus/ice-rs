@@ -1,0 +1,19 @@
+[package]
+name = "murmur-slice"
+version = "0.1.0"
+edition = "2018"
+description = "Сгенерированные из MumbleServer.ice биндинги Ice для Murmur (Mumble server)"
+license = "GPL-2.0"
+readme = "README.md"
+publish = false
+
+[dependencies]
+ice-rs = { path = "../.." }
+async-trait = "0.1"
+num_enum = "0.5"
+
+# ice-rs генерирует код без build.rs НАМЕРЕННО: вывод закоммичен, поэтому
+# потребителю не нужен ни rustfmt на PATH, ни разбор .ice на каждой сборке, а
+# диффы биндингов видны в ревью. Регенерация — вручную, см. README.md.
+[dev-dependencies]
+tokio = { version = "1.1", features = ["full"] }

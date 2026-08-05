@@ -1,93 +1,113 @@
-[![Build Status](https://github.com/cemoktra/ice-rs/workflows/CI/badge.svg)](https://github.com/cemoktra/ice-rs/actions)
+# ice-rs
 
-# ice-rs #
+ZeroC Ice для Rust: рантайм протокола Ice 1.1, компилятор Slice и человеческий
+API к Mumble поверх них.
 
-The goal of this project is to support Rust in [ZeroC Ice](https://github.com/zeroc-ice/ice). 
+Форк [cemoktra/ice-rs](https://github.com/cemoktra/ice-rs), доведённый до
+работоспособности против настоящего Murmur.
 
-## Quick Start ##
-This quick start guide will cover a client for the [ZeroC Ice Minimal Sample](https://github.com/zeroc-ice/ice-demos/tree/3.7/python/Ice/minimal). Create a binary application with `cargo new minimal-client` and add `ice-rs` to your `[build-dependencies]`and `[dependencies]`. Now add a `build.rs` file with the following content:
+## Крейты
 
+| Крейт | Что это |
+|---|---|
+| `ice-rs` (корень) | рантайм Ice + компилятор Slice + бинарь `slice2rs` |
+| [`crates/murmur-slice`](crates/murmur-slice) | биндинги, сгенерированные из `MumbleServer.ice`; только машинный вывод |
+| [`crates/mumble-ice`](crates/mumble-ice) | **человеческий API к Murmur** — с этого начинайте, если пишете бота |
 
-### Minimal client ###
-```Rust
-use ice_rs::slice::parser;
-use std::path::Path;
+## Бот для Mumble
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-  println!("cargo:rerun-if-changed=build.rs");
-  let ice_files = vec![
-      String::from("<path/to/Hello.ice>")
-  ];
-  let root_module = parser::parse_ice_files(&ice_files, "<path/to/ice/include/dir>")?;
-  root_module.generate(Path::new("./src/gen"), "")
-}
-```
-
-Now add the following to you `main.rs`:
-```Rust
-use ice_rs::communicator::Communicator;
-
-mod gen;
-use crate::gen::demo::{Hello,HelloPrx};
+```rust
+use mumble_ice::prelude::*;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut comm = Communicator::new().await?;
-    let proxy = comm.string_to_proxy("hello:default -h localhost -p 10000").await?;
-    let mut hello_prx = HelloPrx::checked_cast(proxy).await?;
+async fn main() -> mumble_ice::Result<()> {
+    let client = MurmurClient::connect("127.0.0.1:6502").await?;
+    let srv = client.only_server().await?;
 
-    hello_prx.say_hello(None).await
-}
-```
-
-### Minimal server ###
-Based on the same `build.rs` file you can add a server for the minimal example.
-
-```Rust
-use ice_rs::communicator::Communicator;
-use std::collections::HashMap;
-use async_trait::async_trait;
-
-mod gen;
-use crate::gen::demo::{HelloServer, HelloI};
-
-struct HelloImpl {}
-
-#[async_trait]
-impl HelloI for HelloImpl {
-    async fn say_hello(&mut self, _context: Option<HashMap<String, String>>) -> ()
-    {
-        println!("Hello World!");
-        ()
+    for user in srv.users().await? {
+        println!("{} в канале {}", user.name, user.channel);
     }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let comm = Communicator::new().await?;
-    let mut adapter = comm.create_object_adapter_with_endpoint("hello", "tcp -h localhost -p 10000").await?;
-
-    let hello_server = HelloServer::new(Box::new(HelloImpl{}));
-
-    adapter.add("hello", Box::new(hello_server));
-    adapter.activate().await?;
-    
+    srv.broadcast("привет").await?;
     Ok(())
 }
 ```
 
-## Status ##
-The status can be seen in the number of supported [ZeroC Ice Demos](http://github.com/zeroc-ice/ice-demos). 
+Колбеки, аутентификатор, типизированные идентификаторы и прочее — в
+[README крейта](crates/mumble-ice/README.md). Примеры:
 
-- Ice/minimal
-- Ice/optional
-- Ice/context (implicit context missing, see [Issue](https://github.com/cemoktra/ice-rs/issues/37))
-- IceGrid/simple
+```bash
+cargo run -p mumble-ice --example bot
+```
 
-Supported transports:
-- TCP
-- SSL
+```bash
+cargo run -p mumble-ice --example authenticator
+```
 
+```bash
+cargo run -p mumble-ice --example event_stream
+```
 
-## Roadmap ##
-The main goal is to support all [ZeroC Ice Demos](http://github.com/zeroc-ice/ice-demos).
+## Generic Ice
+
+Если Mumble не при чём, работайте с корневым крейтом напрямую: `Communicator` +
+`string_to_proxy` на клиенте, `Adapter` + `Servant` на сервере, кодогенерация из
+`.ice` через `build.rs` или `slice2rs`. Подробности — в docstring `src/lib.rs`.
+
+Поддержано: TCP, SSL, кодировка 1.1, twoway и oneway, наследование интерфейсов,
+`const`, исключения с сохранением type-id. Не поддержано: batch-запросы, сжатие,
+UDP, Glacier2, ACM/heartbeat, вложенные генерики в Slice, `optional` в
+структурах, операции в классах, compact type-id у классов. Практически покрыто
+то, что использует `MumbleServer.ice`.
+
+## Тесты
+
+```bash
+cargo nextest run --workspace
+```
+
+E2E против настоящего Murmur — отдельным скриптом: он сам находит бинарь,
+поднимает сервер на чистой БД в temp-каталоге и **перезапускает его между
+группами**.
+
+```bash
+./scripts/e2e.sh
+```
+
+Перезапуск нужен не для красоты: Murmur не переживает `Meta::getServer` и
+остановку/запуск виртуального сервера в пределах одного процесса — падает
+фатальной ошибкой потоков Qt/SQL. Бинарь можно указать через `MURMUR_BIN`,
+порт — через `ICE_PORT`, а `KEEP_TMP=1` оставит логи упавшей группы.
+
+## Состояние
+
+Что было починено относительно upstream, по слоям:
+
+**Провод.** Маршалинг прокси писал длину в байтах там, где Ice ждёт количество
+эндпоинтов, и объявлял режим batch-oneway вместо twoway — то есть отдать пиру
+прокси на колбек было невозможно в принципе. Reply-статусы 2–6 возвращали
+ошибку из декодера **внутри** reader-таска и убивали соединение; вызывающий
+получал таймаут 30 секунд вместо настоящей причины. Тип удалённого исключения
+терялся: все исключения приезжали как первое из `throws`.
+
+**Адаптер.** Обслуживал одно соединение за раз (`handle_socket` ждали внутри
+accept-цикла), а ошибки об ошибке отправлял сырой Rust-строкой под статусом 1 —
+не валидное Ice-исключение, на котором пир рвёт соединение. Реестр servant'ов
+ключевался только по имени, facet игнорировался. Не было ни `bind` против
+`advertise`, ни способа остановиться.
+
+**Кодоген.** Наследование интерфейсов выбрасывалось молча, из-за чего
+`ServerUpdatingAuthenticator` не имел пяти унаследованных операций и не проходил
+`checkedCast`. Out-параметры декодировались из буфера **запроса**. Порядок
+out-параметров и возвращаемого значения в ответе у клиента и сервера был
+противоположным. Все 19 `const` выбрасывались. `rustfmt` не проверялся на код
+возврата, поэтому при сбое молча писался пустой `mod.rs`.
+
+Подробности каждого — в комментариях рядом с исправлениями и в тестах.
+
+**Осталось:** слой соединения (`Proxy` держит один запрос в полёте и опрашивает
+ответ через `tokio::time::sleep`; `FromBytes for Proxy` дозванивается по TCP
+внутри десериализации, из-за чего нужен multi-thread рантайм).
+
+## Лицензия
+
+GPL-2.0, как у upstream.

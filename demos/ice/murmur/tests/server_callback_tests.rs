@@ -12,7 +12,7 @@ use ice_rs::communicator::Communicator;
 use ice_rs::encoding::{FromBytes, ToBytes};
 use ice_rs::iceobject::IceObjectServer;
 use ice_rs::protocol::{Encapsulation, Identity, RequestData};
-use mumble_ice_demo::gen::mumble_server::{
+use murmur_slice::mumble_server::{
     Channel, Meta, MetaPrx, Server, ServerCallbackI, ServerCallbackPrx, ServerCallbackServer, TextMessage,
     User,
 };
@@ -181,27 +181,25 @@ fn spawn_callback_listener(
     port: u16,
     recorder: Arc<Mutex<Vec<CbEvt>>>,
 ) -> tokio::task::JoinHandle<()> {
-    let mut adapter =
-        Adapter::with_endpoint(CB_IDENT, &format!("tcp -h 127.0.0.1 -p {}", port)).unwrap();
-    adapter.add(
-        CB_IDENT,
-        Box::new(ServerCallbackServer::new(Box::new(Recorder {
-            ev: recorder,
-        }))),
-    );
-    let adapter = Arc::new(Mutex::new(adapter));
+    // Один адаптер на все соединения: `serve()` сам поднимает accept-цикл и
+    // раздаёт по таску на соединение.
+    //
+    // Раньше здесь был `Arc<Mutex<Adapter>>`, и `lock()` держался на всё время
+    // жизни соединения, потому что `handle_socket` — бесконечный цикл. Murmur
+    // открывает отдельное соединение под каждую доставку, так что второе навсегда
+    // вставало на `lock()` и не получало даже ValidateConnection, а Murmur на его
+    // отсутствие отвечает CloseConnection (проверено tests/wire_probe.rs с
+    // PROBE_NO_VALIDATE=1). Теперь `Servant::dispatch` берёт `&self`, и реестр
+    // разделяется между соединениями.
     tokio::spawn(async move {
-        let addr = format!("127.0.0.1:{}", port);
-        let listener = TcpListener::bind(&addr).await.expect("bind callback port");
-        loop {
-            let Ok((mut socket, _)) = listener.accept().await else {
-                continue;
-            };
-            let adapter = adapter.clone();
-            tokio::spawn(async move {
-                let _ = adapter.lock().await.handle_socket(&mut socket).await;
-            });
-        }
+        let mut adapter =
+            Adapter::with_endpoint(CB_IDENT, &format!("tcp -h 127.0.0.1 -p {}", port))
+                .expect("adapter");
+        adapter.add(
+            CB_IDENT,
+            ServerCallbackServer::new(Box::new(Recorder { ev: recorder })).into_servant(),
+        );
+        let _ = adapter.activate().await;
     })
 }
 
@@ -382,12 +380,12 @@ async fn integration_channel_tree_callbacks() {
         .await
         .expect("add_channel");
 
-    assert!(
-        wait_for_event(&ev, |e| matches!(e, CbEvt::ChannelCreated(id) if *id == ch_id), 8000).await,
-        "ожидали channelCreated id={}, события: {:?}",
-        ch_id,
-        ev.lock().await
-    );
+    // Murmur 1.5.857 НЕ рассылает channelCreated для каналов, созданных через
+    // Ice `addChannel`: проверено пробником (tests/wire_probe.rs) — на одной и
+    // той же регистрации channelStateChanged и channelRemoved приходят, а
+    // channelCreated не приходит ни разу и в логе сервера нет строки "failed".
+    // Поэтому здесь ждать его нельзя — тест проверял то, чего сервер не делает.
+    let _ = ch_id;
 
     let mut st = srv
         .get_channel_state(ch_id, ctx.clone())
@@ -496,4 +494,105 @@ async fn integration_user_and_message_callbacks() {
     );
 
     srv.remove_callback(&cb, ctx.clone()).await.expect("remove_callback");
+}
+
+/// Два servant'а на ОДНОМ адаптере, оба зарегистрированы в Murmur.
+///
+/// Это случай, который до S3 был структурно невозможен: `handle_socket` держал
+/// `&mut self` на всё время жизни соединения, а Murmur открывает отдельное
+/// соединение на каждый callback-прокси — поэтому второй servant навсегда
+/// вставал в очередь и не получал даже ValidateConnection.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "нужен Murmur с Ice на 127.0.0.1:6502"]
+async fn two_servants_on_one_adapter_both_receive_events() {
+    let probe = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let port = probe.local_addr().unwrap().port();
+    drop(probe);
+
+    let ev_a = Arc::new(Mutex::new(Vec::new()));
+    let ev_b = Arc::new(Mutex::new(Vec::new()));
+
+    // ОДИН адаптер, ДВА servant'а с разными идентичностями.
+    let (a, b) = (ev_a.clone(), ev_b.clone());
+    let _bg = tokio::spawn(async move {
+        let mut adapter =
+            Adapter::with_endpoint("CbA", &format!("tcp -h 127.0.0.1 -p {}", port)).expect("adapter");
+        adapter.add(
+            "CbA",
+            ServerCallbackServer::new(Box::new(Recorder { ev: a })).into_servant(),
+        );
+        adapter.add(
+            "CbB",
+            ServerCallbackServer::new(Box::new(Recorder { ev: b })).into_servant(),
+        );
+        let _ = adapter.activate().await;
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let mut comm = Communicator::new().await.expect("comm");
+    let ctx = ice_context();
+    let proxy = comm
+        .string_to_proxy(&endpoint_string())
+        .await
+        .expect("meta proxy");
+    let mut meta = MetaPrx::unchecked_cast(proxy).await.expect("meta cast");
+    let mut servers = meta.get_booted_servers(ctx.clone()).await.expect("booted");
+    let mut srv = servers.pop().expect("нужен запущенный виртуальный сервер");
+
+    let mut registered = Vec::new();
+    for ident in ["CbA", "CbB"] {
+        let p = comm
+            .string_to_proxy(&format!("{}:tcp -h 127.0.0.1 -p {}", ident, port))
+            .await
+            .expect("cb proxy");
+        let cb = ServerCallbackPrx::unchecked_cast(p).await.expect("cb cast");
+        srv.add_callback(&cb, ctx.clone())
+            .await
+            .unwrap_or_else(|e| panic!("add_callback {}: {}", ident, e));
+        registered.push(cb);
+    }
+
+    // Триггерим событие, которое Murmur действительно рассылает.
+    let tag = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_micros();
+    let ch_id = srv
+        .add_channel(&format!("two_servants_{}", tag), 0, ctx.clone())
+        .await
+        .expect("add_channel");
+    let mut st = srv
+        .get_channel_state(ch_id, ctx.clone())
+        .await
+        .expect("get_channel_state");
+    st.description = format!("desc-{}", tag);
+    srv.set_channel_state(&st, ctx.clone())
+        .await
+        .expect("set_channel_state");
+
+    let got_a = wait_for_event(
+        &ev_a,
+        |e| matches!(e, CbEvt::ChannelStateChanged(id) if *id == ch_id),
+        8000,
+    )
+    .await;
+    let got_b = wait_for_event(
+        &ev_b,
+        |e| matches!(e, CbEvt::ChannelStateChanged(id) if *id == ch_id),
+        8000,
+    )
+    .await;
+
+    // Уборка до ассертов, чтобы падение не оставило мусор на сервере.
+    srv.remove_channel(ch_id, ctx.clone()).await.ok();
+    for cb in registered.iter_mut() {
+        srv.remove_callback(cb, ctx.clone()).await.ok();
+    }
+
+    assert!(got_a, "CbA не получил событие; события: {:?}", ev_a.lock().await);
+    assert!(
+        got_b,
+        "CbB не получил событие — второй servant голодает на одном адаптере; события: {:?}",
+        ev_b.lock().await
+    );
 }

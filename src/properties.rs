@@ -29,6 +29,17 @@ impl Properties {
         return self.properties.contains_key(key)
     }
 
+    /// Задаёт свойство программно.
+    ///
+    /// Раньше свойства можно было получить только из файла через [`load`], то
+    /// есть настроить, например, `IceSSL.*` из кода было невозможно.
+    ///
+    /// [`load`]: Self::load
+    pub fn set(&mut self, key: &str, value: &str) -> &mut Self {
+        self.properties.insert(String::from(key), String::from(value));
+        self
+    }
+
     pub fn load(&mut self, config_file: &str) -> Result<(), Box<dyn std::error::Error>> {
         let mut content = String::new();
         let mut file = File::open(Path::new(&config_file))?;

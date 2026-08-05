@@ -54,6 +54,57 @@ pub struct RemoteException {
     pub cause: String
 }
 
+/// Пользовательское исключение, пришедшее с провода (reply status 1), вместе с
+/// его Slice type-id.
+///
+/// Раньше статус 1 сразу декодировался в единственный тип, захардкоженный
+/// кодогеном для этой операции, а прочитанный type-id выбрасывался — поэтому
+/// `InvalidChannelException` приезжал как `ServerBootedException`, и два разных
+/// исключения Murmur'а были неразличимы. Теперь type-id сохраняется, а тело
+/// остаётся сырым: решение, во что его разворачивать, принимает вызывающий.
+#[derive(Debug)]
+pub struct RemoteUserException {
+    /// Например `::MumbleServer::InvalidChannelException`.
+    pub type_id: String,
+    /// Тело слайса после type-id, для дальнейшего декодирования.
+    pub payload: Vec<u8>,
+}
+
+impl RemoteUserException {
+    /// Type-id без ведущего пути модулей: `InvalidChannelException`.
+    pub fn short_name(&self) -> &str {
+        self.type_id.rsplit("::").next().unwrap_or(&self.type_id)
+    }
+}
+
+/// Какая именно операция не нашлась — reply statuses 2, 3 и 4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RequestFailedKind {
+    ObjectNotExist,
+    FacetNotExist,
+    OperationNotExist,
+}
+
+impl RequestFailedKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RequestFailedKind::ObjectNotExist => "ObjectNotExist",
+            RequestFailedKind::FacetNotExist => "FacetNotExist",
+            RequestFailedKind::OperationNotExist => "OperationNotExist",
+        }
+    }
+}
+
+/// Ice `RequestFailedException` (статусы 2..=4). Раньше эти статусы возвращали
+/// `Err` из декодера внутри reader-таска и убивали соединение.
+#[derive(Debug)]
+pub struct RequestFailedException {
+    pub kind: RequestFailedKind,
+    pub identity: String,
+    pub facet: Vec<String>,
+    pub operation: String,
+}
+
 /// A `UserError` is an error that is defined in ice files.
 /// The generic type will be the defined error struct.
 #[derive(Debug)]
@@ -69,13 +120,32 @@ impl std::fmt::Display for ProtocolError {
 
 impl std::fmt::Display for ParsingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ParsingError!")
+        write!(f, "ParsingError: {}", self.detail)
     }
 }
 
 impl std::fmt::Display for PropertyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PropertyError!")
+        write!(f, "PropertyError: missing key '{}'", self.missing_key)
+    }
+}
+
+impl std::fmt::Display for RemoteUserException {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ({} bytes)", self.type_id, self.payload.len())
+    }
+}
+
+impl std::fmt::Display for RequestFailedException {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: identity '{}', facet {:?}, operation '{}'",
+            self.kind.as_str(),
+            self.identity,
+            self.facet,
+            self.operation
+        )
     }
 }
 
@@ -96,6 +166,8 @@ impl std::error::Error for ProtocolError {}
 impl std::error::Error for ParsingError {}
 impl std::error::Error for RemoteException {}
 impl std::error::Error for PropertyError {}
+impl std::error::Error for RemoteUserException {}
+impl std::error::Error for RequestFailedException {}
 impl<T: std::fmt::Debug + Display + FromBytes> std::error::Error for UserError<T> {}
 
 // dummy needed, but should not get called

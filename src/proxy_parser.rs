@@ -110,7 +110,17 @@ pub fn parse_endpoint(rules: Pairs<Rule>) -> Result<EndPointType, Box<dyn std::e
                             host = item.as_str().trim();
                         }
                         Rule::port => {
-                            port = item.as_str().parse()?;
+                            let parsed: i32 = item.as_str().parse()?;
+                            // Грамматика допускает до пяти цифр, то есть 99999.
+                            // Ноль разрешён: для привязки адаптера это штатный
+                            // запрос «выдай любой свободный порт».
+                            if parsed > 65535 {
+                                return Err(Box::new(ParsingError::new(&format!(
+                                    "Port {} out of range 0..=65535",
+                                    parsed
+                                ))));
+                            }
+                            port = parsed;
                         }
                         _ => return Err(Box::new(ParsingError::new(&format!("Unexpected proxy string rule: {:?}", item.as_rule()))))
                     };
@@ -152,6 +162,47 @@ mod tests {
                     _ => panic!("expected TCP"),
                 }
             }
+            _ => panic!("expected direct"),
+        }
+    }
+
+    /// Правило hostname отвергало точки и цифры, поэтому ни одно реальное
+    /// DNS-имя не парсилось — только односложные метки вроде `localhost`.
+    #[test]
+    fn dotted_hostnames_and_digits_parse() {
+        for host in ["mumble.example.com", "host1", "localhost", "my-box.local"] {
+            let s = format!("Meta:tcp -h {} -p 6502", host);
+            match parse_proxy_string(&s).unwrap_or_else(|e| panic!("{}: {}", host, e)) {
+                ProxyStringType::DirectProxy(d) => match d.endpoint {
+                    EndPointType::TCP(ep) => assert_eq!(ep.host, host),
+                    _ => panic!("expected TCP for {}", host),
+                },
+                _ => panic!("expected direct for {}", host),
+            }
+        }
+    }
+
+    #[test]
+    fn single_digit_port_parses_and_out_of_range_rejected() {
+        assert!(parse_proxy_string("Meta:tcp -h localhost -p 7").is_ok());
+        // Порт 0 — валидный запрос эфемерного порта при привязке адаптера.
+        assert!(parse_proxy_string("Cb:tcp -h 127.0.0.1 -p 0").is_ok());
+        assert!(
+            parse_proxy_string("Meta:tcp -h localhost -p 99999").is_err(),
+            "порт вне 0..=65535 должен отвергаться"
+        );
+    }
+
+    #[test]
+    fn ssl_endpoint_parses() {
+        match parse_proxy_string("Meta:ssl -h murmur.example.com -p 6502").unwrap() {
+            ProxyStringType::DirectProxy(d) => match d.endpoint {
+                EndPointType::SSL(ep) => {
+                    assert_eq!(ep.host, "murmur.example.com");
+                    assert_eq!(ep.port, 6502);
+                }
+                _ => panic!("expected SSL"),
+            },
             _ => panic!("expected direct"),
         }
     }

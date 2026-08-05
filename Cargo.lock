@@ -51,9 +51,9 @@ checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
 name = "bitflags"
-version = "1.2.1"
+version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf1de2fe8c75bc145a2f577add951f8134889b4795d47466a54a5c846d691693"
+checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
 name = "bitflags"
@@ -123,7 +123,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4bd1061998a501ee7d4b6d449020df3266ca3124b941ec56cf2005c3779ca142"
 dependencies = [
  "atty",
- "bitflags 1.2.1",
+ "bitflags 1.3.2",
  "clap_derive",
  "indexmap",
  "lazy_static",
@@ -146,6 +146,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.55",
+]
+
+[[package]]
+name = "context"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "ice-rs",
+ "termion",
+ "tokio",
 ]
 
 [[package]]
@@ -326,6 +336,15 @@ dependencies = [
 [[package]]
 name = "ice-derive"
 version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.55",
+]
+
+[[package]]
+name = "ice-derive"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d56da8ce1704015520bdd6c3884524b058914b2f1fbb57730b781bec40f0228a"
 dependencies = [
@@ -342,7 +361,7 @@ dependencies = [
  "async-trait",
  "clap",
  "futures",
- "ice-derive",
+ "ice-derive 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static",
  "num_enum",
  "openssl",
@@ -416,6 +435,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ee1c47aaa256ecabcaea351eae4a9b01ef39ed810004e298d2511ed284b1525"
 
 [[package]]
+name = "minimal"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "ice-rs",
+ "tokio",
+]
+
+[[package]]
 name = "mio"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -436,6 +464,38 @@ checksum = "5a33c1b55807fbed163481b5ba66db4b2fa6cde694a5027be10fb724206c5897"
 dependencies = [
  "socket2",
  "winapi",
+]
+
+[[package]]
+name = "mumble-ice"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bitflags 1.3.2",
+ "ice-rs",
+ "murmur-slice",
+ "tokio",
+]
+
+[[package]]
+name = "mumble-ice-demo"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "ice-rs",
+ "murmur-slice",
+ "num_enum",
+ "tokio",
+]
+
+[[package]]
+name = "murmur-slice"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "ice-rs",
+ "num_enum",
+ "tokio",
 ]
 
 [[package]]
@@ -478,6 +538,12 @@ dependencies = [
  "quote",
  "syn 1.0.55",
 ]
+
+[[package]]
+name = "numtoa"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8f8bdf33df195859076e54ab11ee78a1b208382d3a26ec40d142ffc1ecc49ef"
 
 [[package]]
 name = "once_cell"
@@ -540,6 +606,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "optional"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "ice-derive 0.1.0",
+ "ice-rs",
+ "num_enum",
+ "tokio",
+]
+
+[[package]]
 name = "os_str_bytes"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -565,7 +642,7 @@ dependencies = [
  "cfg-if",
  "instant",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.1.57",
  "smallvec",
  "winapi",
 ]
@@ -721,6 +798,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41cc0f7e4d5d4544e8861606a285bb08d3e70712ccc7d2b84d7c0ccfaf4b05ce"
 
 [[package]]
+name = "redox_syscall"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
+dependencies = [
+ "bitflags 1.3.2",
+]
+
+[[package]]
+name = "redox_termios"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20145670ba436b55d91fc92d25e71160fbfbdd57831631c8d7d36377a476f1cb"
+
+[[package]]
 name = "regex"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -775,6 +867,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16f1d0fef1604ba8f7a073c7e701f213e056707210e9020af4528e0101ce11a6"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "simple"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "ice-rs",
+ "termion",
+ "tokio",
 ]
 
 [[package]]
@@ -835,6 +937,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dfed899f0eb03f32ee8c6a0aabdb8a7949659e3466561fc0adf54e26d88c5f4"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "termion"
+version = "1.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "077185e2eac69c3f8379a4298e1e07cd36beb962290d4a51199acf0fdc10607e"
+dependencies = [
+ "libc",
+ "numtoa",
+ "redox_syscall 0.2.16",
+ "redox_termios",
 ]
 
 [[package]]

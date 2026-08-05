@@ -5,7 +5,7 @@
 //!
 //! Default proxy: `Meta:tcp -h 127.0.0.1 -p 6502` (see murmur.ini icesecretread / port).
 
-use mumble_ice_demo::gen::mumble_server::{Meta, MetaPrx};
+use murmur_slice::mumble_server::{Meta, MetaPrx};
 use ice_rs::communicator::Communicator;
 
 #[tokio::main]

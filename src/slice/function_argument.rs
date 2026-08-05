@@ -50,20 +50,26 @@ impl FunctionArgument {
 
     pub fn decode_request(&self) -> Option<TokenStream> {
         let id_token = &self.id;
+        // out-параметры в запросе НЕ передаются: их значение — результат работы
+        // servant'а. Раньше гарда не было, и они читались из буфера запроса
+        // подряд с in-параметрами. Для `ServerAuthenticator::authenticate`
+        // (out newname, out groups) и `getInfo` (out info) это означало чтение
+        // мусора за концом реальных данных — то есть аутентификатор не работал.
+        if self.out {
+            let type_token = &self.r#type.token_from();
+            return Some(quote! {
+                let mut #id_token: #type_token = Default::default();
+            });
+        }
         match self.r#type {
             IceType::Optional(_, _) => Some(quote! {
                 let mut #id_token = None;
             }),
-            _ => {                
+            _ => {
                 let type_token = &self.r#type.token_from();
-                let mut_token = if self.out {
-                    quote! { mut }
-                } else {
-                    quote! { }
-                };
                 Some(quote! {
-                    let #mut_token #id_token = #type_token::from_bytes(&__req_param_buf[read_bytes as usize..__req_param_buf.len()], &mut read_bytes)?;
-                })        
+                    let #id_token = #type_token::from_bytes(&__req_param_buf[read_bytes as usize..__req_param_buf.len()], &mut read_bytes)?;
+                })
             }
         }
     }
@@ -89,22 +95,27 @@ impl FunctionArgument {
         }
     }
 
+    /// Пишет out-параметр в буфер ответа `__reply`.
+    ///
+    /// Буфер именно `__reply`, а не `result`: по кодировке Ice out-параметры идут
+    /// в ответе ПЕРЕД возвращаемым значением, поэтому собирать их поверх уже
+    /// сериализованного результата нельзя.
     pub fn encode_output(&self) -> Option<TokenStream> {
         if self.out {
             let id_token = &self.id;
             match self.r#type {
                 IceType::Optional(_, tag) => {
                     Some(quote! {
-                        result.extend(OptionalWrapper::new(#tag, #id_token).to_bytes()?);
+                        __reply.extend(OptionalWrapper::new(#tag, #id_token).to_bytes()?);
                     })
                 }
                 _ => {
                     Some(quote! {
-                        result.extend(#id_token.to_bytes()?);
+                        __reply.extend(#id_token.to_bytes()?);
                     })
                 }
             }
-            
+
         } else {
             None
         }

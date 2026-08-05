@@ -169,11 +169,19 @@ impl Class {
                         SliceFlagsTypeEncoding::StringTypeId => {
                             let _slice_name = String::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?;
                         }
+                        // Конкретный Rust-тип известен статически из сигнатуры
+                        // операции, поэтому реестр «type-id → фабрика» не нужен:
+                        // достаточно съесть идентификатор и читать члены дальше
+                        // позиционно.
+                        //
+                        // Раньше здесь стояли `todo!()`, и любой `getTree` от
+                        // настоящего Murmur (он кодирует классы компактными
+                        // type-id) валил процесс паникой прямо из библиотеки.
                         SliceFlagsTypeEncoding::CompactTypeId => {
-                            todo!()
+                            let _compact_id = IceSize::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?;
                         }
                         SliceFlagsTypeEncoding::IndexTypeId => {
-                            todo!()
+                            let _type_index = IceSize::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?;
                         }
                         SliceFlagsTypeEncoding::NoTypeId => {}
                     }

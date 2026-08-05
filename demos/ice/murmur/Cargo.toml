@@ -10,9 +10,9 @@ path = "src/main.rs"
 
 [dependencies]
 ice-rs = { path = "../../.." }
+# Биндинги приходят готовым крейтом: у демо больше нет ни build.rs, ни своей
+# копии MumbleServer.ice, ни зависимости от rustfmt на PATH.
+murmur-slice = { path = "../../../crates/murmur-slice" }
 tokio = { version = "1.1", features = ["full"] }
 async-trait = "0.1"
 num_enum = "0.5"
-
-[build-dependencies]
-ice-rs = { path = "../../.." }

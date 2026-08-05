@@ -11,7 +11,26 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --release
+          components: rustfmt
+      - uses: taiki-e/install-action@nextest
+
+      # `--workspace` принципиально: до появления `[workspace]` в корневом
+      # Cargo.toml здесь собирался только сам ice-rs, и ни один тест
+      # murmur-демо в CI не запускался.
+      - name: test
+        run: cargo nextest run --workspace --release
+
+      # Биндинги murmur-slice закоммичены. Проверяем, что они соответствуют
+      # MumbleServer.ice: иначе правка .ice без регенерации проходит незамеченной.
+      - name: murmur-slice bindings are up to date
+        run: |
+          cargo run --release -p ice-rs --bin slice2rs -- \
+            crates/murmur-slice/src/gen \
+            crates/murmur-slice/MumbleServer.ice \
+            -i crates/murmur-slice/include
+          if ! git diff --quiet -- crates/murmur-slice/src/gen; then
+            echo "::error::Сгенерированные биндинги разошлись с MumbleServer.ice."
+            echo "Перегенерируйте и закоммитьте (см. crates/murmur-slice/src/lib.rs):"
+            git --no-pager diff --stat -- crates/murmur-slice/src/gen
+            exit 1
+          fi

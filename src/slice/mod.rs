@@ -4,7 +4,6 @@ pub mod structure;
 pub mod struct_member;
 pub mod interface;
 pub mod types;
-pub mod writer;
 pub mod function;
 pub mod function_argument;
 pub mod function_return;

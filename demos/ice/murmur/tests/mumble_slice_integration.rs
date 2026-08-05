@@ -16,9 +16,19 @@
 //!
 //! Переменные: `MUMBLE_ICE_ENDPOINT` (по умолчанию `Meta:tcp -h 127.0.0.1 -p 6502`), `MUMBLE_ICE_SECRET` при необходимости.
 
+//! Тесты здесь требуют multi_thread-рантайма.
+//!
+//! На current_thread они висят бесконечно (проверено: 120 с без прогресса против
+//! 0.07 с на multi_thread). Причина — `Proxy::from_bytes` вызывает
+//! `futures::executor::block_on` и открывает TCP-соединение прямо внутри
+//! десериализации, поэтому декодирование `ServerList` из `getBootedServers`
+//! блокирует тот самый реактор, которого оно ждёт. Как только эта блокировка
+//! уйдёт (ленивый `ProxyRef` вместо дозвона в декодере), атрибуты можно вернуть
+//! к обычному `#[tokio::test]`.
+
 use ice_rs::communicator::Communicator;
 use ice_rs::iceobject::IceObject;
-use mumble_ice_demo::gen::mumble_server::{
+use murmur_slice::mumble_server::{
     Acllist, BanList, GroupList, IdList, LogList, Meta, MetaPrx, NameList, NameMap, Server,
     ServerPrx, Texture, Tree, User, UserInfo, UserInfoMap,
 };
@@ -64,7 +74,7 @@ async fn connect() -> (MetaPrx, ServerPrx, IceCtx) {
     (meta, srv, ctx)
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "нужен Murmur с Ice"]
 async fn meta_all_methods() {
     let (mut meta, mut srv, ctx) = connect().await;
@@ -127,7 +137,7 @@ async fn meta_all_methods() {
         .expect("set_assumed_database_state");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "нужен Murmur с Ice"]
 async fn server_all_methods_smoke() {
     let (_meta, mut srv, ctx) = connect().await;
@@ -447,7 +457,7 @@ fn stale_user_template() -> User {
     }
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "нужен Murmur с Ice"]
 async fn meta_new_server_virtual_delete() {
     let (mut meta, _srv, ctx) = connect().await;
@@ -456,7 +466,7 @@ async fn meta_new_server_virtual_delete() {
     new_srv.delete(ctx.clone()).await.expect("delete new VS");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "нужен Murmur с Ice; останавливает первый виртуальный сервер"]
 async fn server_stop_then_start() {
     let (_meta, mut srv, ctx) = connect().await;
@@ -464,31 +474,31 @@ async fn server_stop_then_start() {
     srv.start(ctx.clone()).await.expect("start после stop");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "нужен Murmur и реальный MetaCallback servant (Ice adapter в этом процессе)"]
 async fn meta_add_callback_remove_callback_not_automated() {
     assert!(true, "реализуйте MetaCallback + Meta::add_callback/remove_callback локально");
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "нужен Murmur и ServerCallback servant"]
 async fn server_add_callback_remove_callback_not_automated() {
     assert!(true);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "нужен Murmur и ServerAuthenticator servant"]
 async fn server_set_authenticator_not_automated() {
     assert!(true);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "нужен Murmur и ServerContextCallback servant"]
 async fn server_add_remove_context_callback_not_automated() {
     assert!(true);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "мутация SuperUser; не запускать на проде"]
 async fn server_set_superuser_password_not_automated() {
     assert!(true);
@@ -508,7 +518,7 @@ async fn server_set_superuser_password_not_automated() {
 /// С клиента при этом вызываются `Meta::add_callback` / `remove_callback`, `Server::add_callback` / `remove_callback`,
 /// `set_authenticator`, `add_context_callback`, `remove_context_callback` — без живого servant для колбэка смысла нет
 /// (см. также отдельные тесты `*_destructive*`).
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn incoming_callback_interfaces_documented() {
     assert!(true);
 }

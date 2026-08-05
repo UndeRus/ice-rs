@@ -5,7 +5,7 @@ use std::rc::Rc;
 use std::cell::RefCell;
 use std::io::prelude::*;
 use escape::escape;
-use inflector::cases::{classcase, pascalcase, snakecase};
+use inflector::cases::{pascalcase, snakecase};
 use pest::Parser;
 use pest::iterators::Pairs;
 use quote::__private::TokenStream;
@@ -55,6 +55,10 @@ impl ParsedModule for Module {
             )));
         }
         let name = it.as_str();
+        // Константы собираются здесь и добавляются после цикла: ветка
+        // module_block держит `&mut` на подмодуль, поэтому писать в `self`
+        // внутри цикла нельзя.
+        let mut pending_constants: Vec<(String, IceType, String)> = Vec::new();
         let module = match self.sub_modules.iter_mut().find(|f| f.name == name) {
             Some(module) => {
                 module
@@ -156,12 +160,42 @@ impl ParsedModule for Module {
                     }
                 }
                 Rule::lang_define => {}
-                Rule::const_def => {}
+                Rule::const_def => {
+                    // `const_def = { keyword_const ~ typename ~ identifier ~ "=" ~ const_value ~ ";" }`
+                    //
+                    // Складываем в локальный список: в этой же match-цепочке живёт
+                    // ветка module_block, которая держит `&mut` на подмодуль, так
+                    // что писать в `self` прямо здесь нельзя.
+                    let mut const_type: Option<IceType> = None;
+                    let mut const_id: Option<String> = None;
+                    for item in child.into_inner() {
+                        match item.as_rule() {
+                            Rule::keyword_const => {}
+                            Rule::typename => {
+                                const_type = Some(IceType::from(item.as_str().trim())?);
+                            }
+                            Rule::identifier => {
+                                const_id = Some(String::from(item.as_str()));
+                            }
+                            Rule::const_value => {
+                                if let (Some(t), Some(id)) = (const_type.take(), const_id.take()) {
+                                    pending_constants.push((id, t, String::from(item.as_str().trim())));
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
                 Rule::block_close => {},
                 _ => return Err(Box::new(ParsingError::new(
                     &format!("Unexpected rule {:?}", child.as_rule())
                 )))
             };
+        }
+        // Именно `module`, а не `self`: `self` — родитель, а содержимое
+        // module_block принадлежит разбираемому подмодулю.
+        for (id, t, value) in pending_constants {
+            module.add_constant(&id, t, &value);
         }
         Ok(())
     }
@@ -274,7 +308,7 @@ impl ParsedObject for Struct {
                 Rule::keyword_struct => {},
                 Rule::identifier => { 
                     structure.ice_id = String::from(child.as_str());
-                    let id_str = format_ident!("{}", classcase::to_class_case(&structure.ice_id));
+                    let id_str = format_ident!("{}", pascalcase::to_pascal_case(&structure.ice_id));
                     structure.id = quote! { #id_str };
                 },
                 Rule::block_open => {},
@@ -302,7 +336,7 @@ impl ParsedObject for Class {
                 Rule::keyword_class => {},
                 Rule::identifier => { 
                     class.ice_id = String::from(child.as_str());
-                    let id_str = format_ident!("{}", classcase::to_class_case(&class.ice_id));
+                    let id_str = format_ident!("{}", pascalcase::to_pascal_case(&class.ice_id));
                     class.id = quote! { #id_str };
                 },
                 Rule::extends => {
@@ -341,8 +375,15 @@ impl ParsedObject for Interface {
             match child.as_rule() {
                 Rule::lang_define => {}
                 Rule::keyword_interface => {},
-                Rule::extends => {}
-                Rule::identifier => { 
+                Rule::extends => {
+                    // `extends = { keyword_extends ~ identifier }`
+                    for item in child.into_inner() {
+                        if let Rule::identifier = item.as_rule() {
+                            interface.extends = Some(String::from(item.as_str()));
+                        }
+                    }
+                }
+                Rule::identifier => {
                     interface.ice_id = String::from(child.as_str());
                     let id_str = format_ident!("{}", pascalcase::to_pascal_case(&interface.ice_id));
                     interface.id = quote! { #id_str };
@@ -542,11 +583,26 @@ impl ParsedObject for Exception {
 }
 
 impl Module {
-    fn parse_file(&mut self, file: &mut File, include_dir: &Path, parsed_files: &mut BTreeSet<String>) -> Result<(), Box<dyn std::error::Error>> {
+    fn parse_file(&mut self, file: &mut File, path: &Path, include_dir: &Path, parsed_files: &mut BTreeSet<String>) -> Result<(), Box<dyn std::error::Error>> {
         let mut content = String::new();
         file.read_to_string(&mut content)?;
 
-        let pairs = IceParser::parse(Rule::ice, &content).unwrap();
+        // Раньше здесь был `.unwrap()`, и любая опечатка в `.ice` превращалась в
+        // панику внутри build.rs без указания места. Ошибка pest несёт строку,
+        // столбец и сам фрагмент — их и показываем вместе с именем файла.
+        let pairs = IceParser::parse(Rule::ice, &content).map_err(|e| {
+            let (line, col) = match e.line_col {
+                pest::error::LineColLocation::Pos((l, c)) => (l, c),
+                pest::error::LineColLocation::Span((l, c), _) => (l, c),
+            };
+            ParsingError::new(&format!(
+                "{}:{}:{}: {}",
+                path.display(),
+                line,
+                col,
+                e
+            ))
+        })?;
         for pair in pairs {
             match pair.as_rule() {
                 Rule::ice => {
@@ -584,7 +640,7 @@ impl Module {
                                 } else {
                                     parsed_files.insert(include_str.clone());
                                     let mut include_file = File::open(&include)?;
-                                    self.parse_file(&mut include_file, include_dir, parsed_files)?;
+                                    self.parse_file(&mut include_file, &include, include_dir, parsed_files)?;
                                     println!("  finished include");
                                 }
                             }
@@ -619,8 +675,9 @@ pub fn parse_ice_files(ice_files: &Vec<String>, include_dir: &str) -> Result<Mod
             println!("skip file!");
         } else {
             parsed_files.insert(item.clone());
-            let mut file = File::open(Path::new(&item))?;
-            root.parse_file(&mut file, Path::new(include_dir), &mut parsed_files)?;
+            let path = Path::new(&item);
+            let mut file = File::open(path)?;
+            root.parse_file(&mut file, path, Path::new(include_dir), &mut parsed_files)?;
             println!("finished parsing!");
         }
     }

@@ -97,7 +97,10 @@ impl Function {
         }
 
         let ice_id_token = &self.ice_id;
-        let mode = if self.idempotent { 1u8 } else { 0u8 };
+        // Ice `OperationMode`: Normal=0, Nonmutating=1 (устарел), Idempotent=2.
+        // Раньше здесь была 1, то есть все ~70 idempotent-операций Murmur'а
+        // уходили с устаревшим режимом.
+        let mode = if self.idempotent { 2u8 } else { 0u8 };
         let returned_token = self.return_type.return_token();
         let bytes_token = if arg_serialize_input_tokens.len() > 0 {
             quote! { let mut bytes = Vec::new(); }
@@ -138,28 +141,31 @@ impl Function {
             let decoded_tokens = self.arguments.iter().map(|arg| arg.decode_request()).collect::<Vec<_>>();
             let decoded_opt_tokens = self.arguments.iter().map(|arg| arg.decode_optional_request()).collect::<Vec<_>>();
             let encoded_outputs = self.arguments.iter().map(|arg| arg.encode_output()).collect::<Vec<_>>();
-            let has_outputs = self.arguments.iter().any(|arg| arg.out);
-            let mut_token = if has_outputs {
-                quote!{ mut }
-            } else {
-                quote!{ }
-            }; 
 
             quote!{
                 let __req_param_buf = ice_rs::protocol::peel_slice_param_payload(&request.params.data);
                 let mut read_bytes = 0;
                 #(#decoded_tokens)*
                 #(#decoded_opt_tokens)*
-                let result = self.server_impl.#id_token (#(#arg_tokens),*, None).await;
+                // Контекст запроса пробрасывается в servant. Раньше здесь было
+                // жёстко `None`, поэтому servant не мог прочитать ни одной
+                // записи контекста — включая `secret`, который Murmur кладёт туда.
+                let result = self.server_impl.#id_token (#(#arg_tokens),*, Some(request.context.clone())).await;
                 #wrapped_result
-                let #mut_token result = wrapped_result.to_bytes()?;
-                #(#encoded_outputs)*                
+                // Порядок по кодировке Ice: сначала обязательные out-параметры,
+                // затем возвращаемое значение. Раньше servant писал наоборот, и
+                // ответ на `authenticate`/`getInfo` был неразбираем для Murmur,
+                // хотя клиентская сторона читала правильно.
+                let mut __reply: Vec<u8> = Vec::new();
+                #(#encoded_outputs)*
+                __reply.extend(wrapped_result.to_bytes()?);
+                let result = __reply;
             }
         } else {
             quote!{
                 let __req_param_buf = ice_rs::protocol::peel_slice_param_payload(&request.params.data);
                 let _ = __req_param_buf.len();
-                let result = self.server_impl.#id_token (None).await;
+                let result = self.server_impl.#id_token (Some(request.context.clone())).await;
                 #wrapped_result
                 let result = wrapped_result.to_bytes()?;
             }

@@ -1,7 +1,7 @@
 use quote::__private::TokenStream;
 use quote::*;
 use regex::Regex;
-use inflector::cases::{classcase, snakecase};
+use inflector::cases::{pascalcase, snakecase};
 
 #[derive(Clone, Debug)]
 pub enum IceType {
@@ -47,21 +47,28 @@ impl IceType {
             }
         }
 
-        let type_re = Regex::new(
-            r#"(?x)^
-            (void)$ |
-            (bool)$ |
-            (byte)$ |
-            (short)$ |
-            (int)$ |
-            (long)$ |
-            (float)$ |
-            (double)$ |
-            (string)$ |
-            (sequence)<(.+)>$ |
-            (dictionary)<(.+),\s*(.+)>$ |
-            "#,
-        )?;
+        // Компилируется один раз, а не на каждый вызов `IceType::from` — а он
+        // вызывается на каждый член, параметр, возвращаемый тип и typedef, то
+        // есть сотни раз за генерацию.
+        lazy_static::lazy_static! {
+            static ref TYPE_RE: Regex = Regex::new(
+                r#"(?x)^
+                (void)$ |
+                (bool)$ |
+                (byte)$ |
+                (short)$ |
+                (int)$ |
+                (long)$ |
+                (float)$ |
+                (double)$ |
+                (string)$ |
+                (sequence)<(.+)>$ |
+                (dictionary)<(.+),\s*(.+)>$ |
+                "#,
+            )
+            .expect("built-in Slice type regex must compile");
+        }
+        let type_re = &*TYPE_RE;
 
         let captures = type_re.captures(text).map(|captures| {
             captures
@@ -112,7 +119,7 @@ impl IceType {
             }
             IceType::Optional(type_name, _) => format!("Option<{}>", type_name.rust_type()),
             IceType::Proxy(inner) => match &**inner {
-                IceType::CustomType(n) => format!("{}Prx", classcase::to_class_case(n)),
+                IceType::CustomType(n) => format!("{}Prx", pascalcase::to_pascal_case(n)),
                 _ => format!("{}Prx", inner.rust_type()),
             },
             IceType::CustomType(type_name) => type_name.clone(),
@@ -155,7 +162,7 @@ impl IceType {
             }
             IceType::Proxy(inner) => match &**inner {
                 IceType::CustomType(name) => {
-                    let id = format_ident!("{}Prx", classcase::to_class_case(name));
+                    let id = format_ident!("{}Prx", pascalcase::to_pascal_case(name));
                     quote! { #id }
                 }
                 other => {
@@ -167,7 +174,7 @@ impl IceType {
                 if type_name.contains("::") {
                     scoped_tokens(type_name)
                 } else {
-                    let id = format_ident!("{}", classcase::to_class_case(type_name));
+                    let id = format_ident!("{}", pascalcase::to_pascal_case(type_name));
                     quote! { #id }
                 }
             }
@@ -182,6 +189,65 @@ impl IceType {
             | IceType::CustomType(_)
             | IceType::Proxy(_) => true,
             _ => false,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Объявление и ссылка обязаны давать одно и то же имя.
+    ///
+    /// Раньше структуры/классы объявлялись через `to_class_case`, enum'ы и
+    /// интерфейсы — через `to_pascal_case`, а все ссылки резолвились через
+    /// `to_class_case`. `to_class_case` вдобавок отбрасывает множественное число
+    /// последнего слова, поэтому Slice-тип `Users` объявлялся как `Users`
+    /// (enum-путь) и упоминался как `User` — то есть ссылка на несуществующий тип.
+    #[test]
+    fn declaration_and_reference_mangling_agree() {
+        for name in [
+            "Users", "ACLList", "DBState", "Tree", "UserMap", "CertificateDer", "NameList",
+        ] {
+            let reference = IceType::CustomType(String::from(name)).token().to_string();
+            let declaration = pascalcase::to_pascal_case(name);
+            assert_eq!(
+                declaration, reference,
+                "объявление и ссылка разошлись для Slice-типа {}",
+                name
+            );
+        }
+    }
+
+    /// Именно эта сингуляризация и ломала имена.
+    #[test]
+    fn plural_type_names_are_not_singularised() {
+        let reference = IceType::CustomType(String::from("Users")).token().to_string();
+        assert_ne!("User", reference, "имя типа не должно терять множественное число");
+    }
+
+    #[test]
+    fn proxy_types_get_prx_suffix() {
+        let t = IceType::Proxy(Box::new(IceType::CustomType(String::from("Server"))));
+        assert_eq!("ServerPrx", t.token().to_string());
+        assert_eq!("ServerPrx", t.rust_type());
+    }
+
+    #[test]
+    fn nested_generics_still_unsupported_but_single_level_works() {
+        // Один уровень разбирается.
+        match IceType::from("sequence<string>").unwrap() {
+            IceType::SequenceType(inner) => {
+                assert!(matches!(*inner, IceType::StringType));
+            }
+            other => panic!("ожидали sequence, получили {:?}", other),
+        }
+        match IceType::from("dictionary<int, string>").unwrap() {
+            IceType::DictType(k, v) => {
+                assert!(matches!(*k, IceType::IntType));
+                assert!(matches!(*v, IceType::StringType));
+            }
+            other => panic!("ожидали dictionary, получили {:?}", other),
         }
     }
 }

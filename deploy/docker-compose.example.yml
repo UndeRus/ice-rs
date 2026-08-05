@@ -1,0 +1,47 @@
+# Пример развёртывания бота рядом с Murmur.
+#
+# Главная тонкость: Murmur **сам звонит** на наш адрес, чтобы доставить колбеки и
+# спросить аутентификатор. Поэтому адрес прослушивания бота и адрес, который бот
+# объявляет Murmur'у, — разные вещи:
+#
+#   .callback_listen("0.0.0.0:7100")   слушаем внутри контейнера
+#   .callback_advertise("bot", 7100)   так Murmur нас найдёт (имя сервиса в сети compose)
+#
+# Если объявить `0.0.0.0`, Murmur не сможет дозвониться — поэтому фасад отвергает
+# такую конфигурацию ещё на `connect()`, а не отдаёт невнятный `InvalidCallback`
+# секундами позже.
+
+services:
+  murmur:
+    image: mumblevoip/mumble-server:latest
+    restart: unless-stopped
+    ports:
+      - "64738:64738/tcp"
+      - "64738:64738/udp"
+    environment:
+      # Ice слушаем только внутри сети compose — снаружи его публиковать нельзя:
+      # у Ice нет аутентификации помимо секрета.
+      MUMBLE_CONFIG_ICE: '"tcp -h 0.0.0.0 -p 6502"'
+      MUMBLE_CONFIG_ICESECRETREAD: "${MUMBLE_SECRET:?задайте MUMBLE_SECRET}"
+      MUMBLE_CONFIG_ICESECRETWRITE: "${MUMBLE_SECRET}"
+    volumes:
+      - murmur-data:/data
+
+  bot:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - murmur
+    environment:
+      # Куда подключаться боту.
+      MUMBLE_ICE_ENDPOINT: "murmur:6502"
+      MUMBLE_ICE_SECRET: "${MUMBLE_SECRET}"
+      # Куда Murmur должен звонить обратно. Имя `bot` разрешается сетью compose.
+      MUMBLE_CALLBACK_ADVERTISE_HOST: "bot"
+      MUMBLE_CALLBACK_ADVERTISE_PORT: "7100"
+      MUMBLE_CALLBACK_LISTEN: "0.0.0.0:7100"
+    expose:
+      - "7100"
+
+volumes:
+  murmur-data:

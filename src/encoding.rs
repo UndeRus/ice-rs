@@ -157,6 +157,29 @@ impl FromBytes for OptionalFlag {
     }
 }
 
+/// Счётчик элементов последовательности/словаря приходит с провода. Каждый элемент
+/// занимает минимум один байт, поэтому счётчик не может превышать остаток буфера —
+/// иначе цикл декодирования крутится на мусорном значении до паники на срезе.
+pub(crate) fn check_element_count(
+    count: i32,
+    remaining: usize,
+    what: &str,
+) -> Result<(), Box<dyn std::error::Error + Sync + Send>> {
+    if count < 0 {
+        return Err(Box::new(ProtocolError::new(&format!(
+            "Negative {} element count: {}",
+            what, count
+        ))));
+    }
+    if count as usize > remaining {
+        return Err(Box::new(ProtocolError::new(&format!(
+            "Implausible {} element count {}: only {} bytes remain",
+            what, count, remaining
+        ))));
+    }
+    Ok(())
+}
+
 impl ToBytes for IceSize {
     fn to_bytes(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Sync + Send>> {
         if self.size < 255 {
@@ -179,7 +202,9 @@ impl FromBytes for IceSize {
             if bytes.len() < 5 {
                 return Err(Box::new(ProtocolError::new("Not enough bytes to read IceSize")));
             } else {
-                *read_bytes = 1;
+                // Аккумулировать, а не присваивать: вызывающий передаёт сюда уже
+                // накопленный курсор, и `= 1` затирал его для размеров >= 255.
+                *read_bytes = *read_bytes + 1;
                 Ok(IceSize {
                     size: i32::from_bytes(&bytes[1..5], read_bytes)?
                 })
@@ -213,7 +238,22 @@ impl FromBytes for String {
     where Self: Sized {
         let mut read = 0;
         let size = IceSize::from_bytes(bytes, &mut read)?.size;
-        let s = String::from_utf8(bytes[read as usize..read as usize + size as usize].to_vec())?;
+        // `size` приходит с провода: без проверки срез ниже паникует на усечённом кадре.
+        if size < 0 {
+            return Err(Box::new(ProtocolError::new("Negative string length")));
+        }
+        let start = read as usize;
+        let end = start
+            .checked_add(size as usize)
+            .ok_or_else(|| ProtocolError::new("String length overflow"))?;
+        if bytes.len() < end {
+            return Err(Box::new(ProtocolError::new(&format!(
+                "Truncated string: need {} bytes, have {}",
+                end,
+                bytes.len()
+            ))));
+        }
+        let s = String::from_utf8(bytes[start..end].to_vec())?;
         *read_bytes = *read_bytes + read + size;
         Ok(s)
     }
@@ -236,6 +276,7 @@ impl<T: FromBytes + Eq + Hash, U: FromBytes> FromBytes for HashMap<T, U> {
     where Self: Sized {
         let mut read = 0;
         let size = IceSize::from_bytes(bytes, &mut read)?.size;
+        check_element_count(size, bytes.len().saturating_sub(read as usize), "dictionary")?;
         let mut dict: HashMap<T, U> = HashMap::new();
 
         for _i in 0..size {
@@ -265,7 +306,8 @@ impl<T: FromBytes> FromBytes for Vec<T>
     where Self: Sized {
         let mut read = 0;
         let size = IceSize::from_bytes(bytes, &mut read)?.size;
-        let mut seq: Vec<T> = vec![];
+        check_element_count(size, bytes.len().saturating_sub(read as usize), "sequence")?;
+        let mut seq: Vec<T> = Vec::with_capacity(size.min(1024) as usize);
 
         for _i in 0..size {
             seq.push(T::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?);
@@ -297,6 +339,9 @@ impl ToBytes for u8 {
 impl FromBytes for u8 {
     fn from_bytes(bytes: &[u8], read_bytes: &mut i32) -> Result<Self, Box<dyn std::error::Error + Sync + Send>>
     where Self: Sized {
+        if bytes.is_empty() {
+            return Err(Box::new(ProtocolError::new("Not enough bytes to read u8")));
+        }
         *read_bytes = *read_bytes + 1;
         Ok(bytes[0])
     }
@@ -491,37 +536,26 @@ impl FromBytes for Encapsulation {
     }
 }
 
-impl FromBytes for ReplyData {
+impl FromBytes for RawReply {
+    /// Разбирает только `request_id` и `status`; тело остаётся сырым.
+    ///
+    /// Успешно проходит для **любого** статуса, включая нераспознанные —
+    /// потому что вызывается из reader-таска, а любой `Err` там убивает
+    /// соединение и превращает ошибку в таймаут у вызывающего.
     fn from_bytes(bytes: &[u8], read_bytes: &mut i32) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
         let mut read: i32 = 0;
-        if bytes.len() < 11 {
-            return Err(Box::new(ProtocolError::new("Not enough bytes to read ReplyData")));
+        if bytes.len() < 5 {
+            return Err(Box::new(ProtocolError::new("Not enough bytes to read reply header")));
         }
-
-        let request_id = i32::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?;
-        let status = u8::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?;
-        match status {
-            0 | 1 => {
-                let encapsulation = Encapsulation::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?;
-                *read_bytes = *read_bytes + read;
-                Ok(ReplyData {
-                    request_id: request_id,
-                    status: status,
-                    body: encapsulation
-                })
-            }
-            // 1 => {
-            //     Err(Error::EncapsulatedUserException(Encapsulation::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?))
-            // }
-            7 => {
-                Err(Box::new(
-                    RemoteException {
-                        cause: String::from_bytes(&bytes[read as usize..bytes.len()], &mut read)?
-                    }
-                ))
-            }
-            _ => Err(Box::new(ProtocolError::new(&format!("Unsupported ReplyData status: {}", status))))
-        }
+        let request_id = i32::from_bytes(&bytes[read as usize..], &mut read)?;
+        let status = u8::from_bytes(&bytes[read as usize..], &mut read)?;
+        let payload = bytes[read as usize..].to_vec();
+        *read_bytes = *read_bytes + read + payload.len() as i32;
+        Ok(RawReply {
+            request_id,
+            status,
+            payload,
+        })
     }
 }
 
@@ -855,9 +889,58 @@ mod test {
             body: Encapsulation::empty()
         };
         let bytes = reply.to_bytes().expect("Cannot encode test reply");
-        let decoded = ReplyData::from_bytes(&bytes, &mut read_bytes).expect("Cannot decode test reply");
+        let decoded = RawReply::from_bytes(&bytes, &mut read_bytes).expect("Cannot decode test reply");
         assert_eq!(11, read_bytes);
         assert_eq!(reply.request_id, decoded.request_id);
         assert_eq!(reply.status, decoded.status);
+        // Тело осталось сырым: 6 байт пустой Encapsulation.
+        assert_eq!(6, decoded.payload.len());
+    }
+
+    /// Статусы 2..=7 раньше возвращали `Err` из декодера, что убивало reader-таск.
+    /// Теперь они разбираются как любой другой ответ.
+    #[test]
+    fn raw_reply_accepts_every_status() {
+        for status in 0u8..=9 {
+            let mut bytes = 7i32.to_bytes().unwrap();
+            bytes.extend(status.to_bytes().unwrap());
+            bytes.extend(b"tail");
+            let mut read = 0;
+            let decoded = RawReply::from_bytes(&bytes, &mut read)
+                .unwrap_or_else(|e| panic!("status {} rejected: {}", status, e));
+            assert_eq!(7, decoded.request_id);
+            assert_eq!(status, decoded.status);
+            assert_eq!(b"tail".to_vec(), decoded.payload);
+            assert_eq!(9, read);
+        }
+    }
+
+    /// Длинная форма `IceSize` затирала накопленный курсор вызывающего (`= 1`
+    /// вместо `+= 1`), из-за чего всё после размера >= 255 читалось со сдвигом.
+    #[test]
+    fn ice_size_long_form_accumulates_cursor() {
+        let mut bytes = vec![0xAA, 0xBB]; // два байта, которые вызывающий уже прочёл
+        bytes.extend(IceSize { size: 300 }.to_bytes().unwrap());
+        let mut read = 2;
+        let size = IceSize::from_bytes(&bytes[2..], &mut read).unwrap().size;
+        assert_eq!(300, size);
+        assert_eq!(2 + 5, read, "курсор должен накапливаться, а не затираться");
+    }
+
+    #[test]
+    fn truncated_string_errors_instead_of_panicking() {
+        // Заявленная длина 200, а байтов всего 3.
+        let bytes = vec![200u8, b'a', b'b'];
+        let mut read = 0;
+        assert!(String::from_bytes(&bytes, &mut read).is_err());
+    }
+
+    #[test]
+    fn implausible_sequence_count_errors() {
+        // Счётчик 255 (длинная форма, 1_000_000 элементов) при пустом остатке.
+        let mut bytes = IceSize { size: 1_000_000 }.to_bytes().unwrap();
+        bytes.extend(vec![0u8; 4]);
+        let mut read = 0;
+        assert!(Vec::<i32>::from_bytes(&bytes, &mut read).is_err());
     }
 }
